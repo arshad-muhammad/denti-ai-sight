@@ -1,12 +1,23 @@
-
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ArrowRight, Brain, Clock, Download, Shield, Star, Upload, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/lib/AuthContext";
 
 const Index = () => {
   const [activeStep, setActiveStep] = useState(1);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handleAction = () => {
+    if (user) {
+      navigate("/dashboard");
+    } else {
+      navigate("/login");
+    }
+  };
 
   const features = [
     {
@@ -79,8 +90,16 @@ const Index = () => {
             <a href="#features" className="text-gray-600 hover:text-medical-600 transition-colors">Features</a>
             <a href="#how-it-works" className="text-gray-600 hover:text-medical-600 transition-colors">How It Works</a>
             <a href="#testimonials" className="text-gray-600 hover:text-medical-600 transition-colors">Reviews</a>
-            <Button variant="outline">Login</Button>
-            <Button className="bg-medical-600 hover:bg-medical-700">Get Started</Button>
+            {user ? (
+              <Button className="bg-medical-600 hover:bg-medical-700" onClick={() => navigate("/dashboard")}>
+                Go to Dashboard
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={handleAction}>Login</Button>
+                <Button className="bg-medical-600 hover:bg-medical-700" onClick={handleAction}>Get Started</Button>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -106,11 +125,17 @@ const Index = () => {
             <Button 
               size="lg" 
               className="bg-medical-600 hover:bg-medical-700 text-lg px-8 py-3"
+              onClick={handleAction}
             >
-              Try Free Analysis
+              {user ? 'Go to Dashboard' : 'Try Free Analysis'}
               <ArrowRight className="ml-2 w-5 h-5" />
             </Button>
-            <Button variant="outline" size="lg" className="text-lg px-8 py-3">
+            <Button 
+              variant="outline" 
+              size="lg" 
+              className="text-lg px-8 py-3"
+              onClick={() => window.location.href = '#how-it-works'}
+            >
               Watch Demo
             </Button>
           </div>
@@ -241,27 +266,34 @@ const Index = () => {
       <section className="py-20 px-4 bg-medical-600">
         <div className="container mx-auto text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-            Ready to Transform Your Practice?
+            {user ? 'Ready to Analyze?' : 'Ready to Transform Your Practice?'}
           </h2>
           <p className="text-xl text-medical-100 mb-8 max-w-2xl mx-auto">
-            Join hundreds of dental professionals using AI to improve patient care and diagnosis accuracy.
+            {user 
+              ? 'Start analyzing your dental radiographs with AI technology.'
+              : 'Join hundreds of dental professionals using AI to improve patient care and diagnosis accuracy.'
+            }
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button 
               size="lg" 
               variant="secondary"
               className="text-lg px-8 py-3"
+              onClick={handleAction}
             >
-              Start Free Trial
+              {user ? 'New Analysis' : 'Start Free Trial'}
               <ArrowRight className="ml-2 w-5 h-5" />
             </Button>
-            <Button 
-              variant="outline" 
-              size="lg" 
-              className="text-lg px-8 py-3 border-white text-white hover:bg-white hover:text-medical-600"
-            >
-              Schedule Demo
-            </Button>
+            {!user && (
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="text-lg px-8 py-3 border-white text-white hover:bg-white hover:text-medical-600"
+                onClick={handleAction}
+              >
+                Schedule Demo
+              </Button>
+            )}
           </div>
         </div>
       </section>

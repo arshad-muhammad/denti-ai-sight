@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, User, Upload, FileText, Brain } from "lucide-react";
@@ -11,11 +10,18 @@ import RadiographUploadStep from "@/components/NewCase/RadiographUploadStep";
 import ClinicalExaminationStep from "@/components/NewCase/ClinicalExaminationStep";
 import ReviewSubmitStep from "@/components/NewCase/ReviewSubmitStep";
 import NavigationButtons from "@/components/NewCase/NavigationButtons";
+import { useAuth } from "@/lib/AuthContext";
+import { dentalCaseService } from "@/lib/services/dentalCase";
+import { useToast } from "@/components/ui/use-toast";
 
 const NewCase = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
+  const [loading, setLoading] = useState(false);
   const totalSteps = 4;
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [error, setError] = useState<string | null>(null);
 
   const [patientData, setPatientData] = useState<PatientData>({
     fullName: "",
@@ -81,10 +87,57 @@ const NewCase = () => {
     }
   };
 
-  const handleSubmit = () => {
-    const caseId = `C-${Date.now().toString().slice(-3)}`;
-    console.log("Submitting case:", { patientData, xrayFile, clinicalData });
-    navigate(`/analysis/${caseId}`);
+  const handleSubmit = async () => {
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "You must be logged in to create a case.",
+      });
+      return;
+    }
+
+    if (!xrayFile) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please upload a radiograph.",
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Create the case
+      const caseId = await dentalCaseService.create({
+        userId: user.uid,
+        patientData,
+        clinicalData,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+
+      // Upload the radiograph
+      await dentalCaseService.uploadRadiograph(caseId, xrayFile);
+
+      toast({
+        title: "Success",
+        description: "Case created successfully. Starting analysis...",
+      });
+
+      // Navigate to analysis page
+      navigate(`/analysis/${caseId}`);
+    } catch (error) {
+      console.error("Error creating case:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to create case. Please try again.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderStepContent = () => {
@@ -99,8 +152,9 @@ const NewCase = () => {
       case 2:
         return (
           <RadiographUploadStep
-            xrayFile={xrayFile}
-            setXrayFile={setXrayFile}
+            onFileSelect={setXrayFile}
+            selectedFile={xrayFile}
+            error={error}
           />
         );
       case 3:
@@ -141,50 +195,43 @@ const NewCase = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button>
-            <span className="text-gray-400">|</span>
-            <h1 className="text-xl font-semibold text-gray-900">New Case</h1>
-          </div>
-          
-          <div className="text-sm text-gray-500">
-            Step {currentStep} of {totalSteps}
-          </div>
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" onClick={() => navigate("/dashboard")}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Button>
+          <span className="text-gray-400">|</span>
+          <h1 className="text-xl font-semibold text-gray-900">New Case</h1>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto p-6">
-        <StepNavigation
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-          steps={steps}
-        />
-
-        <Card className="mb-8">
+      <div className="container mx-auto px-4 py-8">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
-              {React.createElement(steps[currentStep - 1].icon, { className: "w-5 h-5 mr-2" })}
-              {steps[currentStep - 1].title}
-            </CardTitle>
-            <CardDescription>{steps[currentStep - 1].description}</CardDescription>
+            <CardTitle>Create New Case</CardTitle>
+            <CardDescription>
+              Fill in the required information to start AI analysis
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
+            <StepNavigation
+              currentStep={currentStep}
+              totalSteps={totalSteps}
+              steps={steps}
+            />
+
             {renderStepContent()}
+
+            <NavigationButtons
+              currentStep={currentStep}
+              totalSteps={totalSteps}
+              canProceed={canProceed()}
+              onPrevious={handlePrevious}
+              onNext={handleNext}
+              onSubmit={handleSubmit}
+            />
           </CardContent>
         </Card>
-
-        <NavigationButtons
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-          canProceed={canProceed()}
-          onPrevious={handlePrevious}
-          onNext={handleNext}
-          onSubmit={handleSubmit}
-        />
       </div>
     </div>
   );

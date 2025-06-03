@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
   Plus, 
@@ -18,7 +17,8 @@ import {
   Brain,
   Activity,
   Users,
-  TrendingUp
+  TrendingUp,
+  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,62 +40,57 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAuth } from "@/lib/AuthContext";
+import { dentalCaseService, type DentalCase } from "@/lib/services/dentalCase";
+import { useToast } from "@/components/ui/use-toast";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
+  const [cases, setCases] = useState<DentalCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth();
+  const { toast } = useToast();
 
-  // Mock data
-  const recentCases = [
-    {
-      id: "C-001",
-      patientName: "John Doe",
-      age: 45,
-      date: "2024-06-03",
-      status: "completed",
-      diagnosis: "Moderate Periodontitis",
-      severity: "moderate"
-    },
-    {
-      id: "C-002",
-      patientName: "Sarah Smith",
-      age: 32,
-      date: "2024-06-02",
-      status: "in-progress",
-      diagnosis: "Pending Analysis",
-      severity: null
-    },
-    {
-      id: "C-003",
-      patientName: "Michael Johnson",
-      age: 58,
-      date: "2024-06-01",
-      status: "completed",
-      diagnosis: "Periapical Abscess",
-      severity: "severe"
-    },
-    {
-      id: "C-004",
-      patientName: "Emily Brown",
-      age: 28,
-      date: "2024-05-31",
-      status: "report-ready",
-      diagnosis: "Mild Gingivitis",
-      severity: "mild"
-    }
-  ];
+  useEffect(() => {
+    const loadCases = async () => {
+      try {
+        if (user) {
+          const userCases = await dentalCaseService.getByUserId(user.uid);
+          setCases(userCases);
+        }
+      } catch (error) {
+        console.error("Error loading cases:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load cases. Please try again.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCases();
+  }, [user]);
 
   const stats = [
     {
       title: "Total Cases",
-      value: "24",
+      value: cases.length.toString(),
       change: "+12%",
       icon: FileText,
       color: "bg-blue-500"
     },
     {
       title: "This Month",
-      value: "8",
+      value: cases.filter(c => {
+        const caseDate = new Date(c.createdAt);
+        if (!caseDate) return false;
+        const now = new Date();
+        return caseDate.getMonth() === now.getMonth() && 
+               caseDate.getFullYear() === now.getFullYear();
+      }).length.toString(),
       change: "+4",
       icon: Calendar,
       color: "bg-green-500"
@@ -109,7 +104,7 @@ const Dashboard = () => {
     },
     {
       title: "Active Patients",
-      value: "18",
+      value: new Set(cases.map(c => c.patientData.fullName)).size.toString(),
       change: "+3",
       icon: Users,
       color: "bg-orange-500"
@@ -146,6 +141,43 @@ const Dashboard = () => {
     navigate("/new-case");
   };
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch (error) {
+      console.error("Error logging out:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+      });
+    }
+  };
+
+  const handleDeleteCase = async (id: string) => {
+    try {
+      await dentalCaseService.delete(id);
+      setCases(cases.filter(c => c.id !== id));
+      toast({
+        title: "Success",
+        description: "Case deleted successfully.",
+      });
+    } catch (error) {
+      console.error("Error deleting case:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete case. Please try again.",
+      });
+    }
+  };
+
+  const filteredCases = cases.filter(c => 
+    c.patientData.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -175,7 +207,7 @@ const Dashboard = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon">
                   <Avatar className="w-8 h-8">
-                    <AvatarFallback>DS</AvatarFallback>
+                    <AvatarFallback>{user?.email?.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
@@ -183,7 +215,10 @@ const Dashboard = () => {
                 <DropdownMenuItem>Profile</DropdownMenuItem>
                 <DropdownMenuItem>Settings</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>Logout</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -236,86 +271,105 @@ const Dashboard = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Case ID</TableHead>
-                  <TableHead>Patient</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Diagnosis</TableHead>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentCases.map((case_) => (
-                  <TableRow key={case_.id}>
-                    <TableCell className="font-medium">{case_.id}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <Avatar className="w-8 h-8">
-                          <AvatarFallback>
-                            {case_.patientName.split(' ').map(n => n[0]).join('')}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">{case_.patientName}</div>
-                          <div className="text-sm text-gray-500">Age {case_.age}</div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-8 h-8 border-4 border-medical-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Patient</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Findings</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCases.map((case_) => (
+                    <TableRow key={case_.id}>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Avatar className="w-8 h-8">
+                            <AvatarFallback>{case_.patientData.fullName.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{case_.patientData.fullName}</p>
+                            <p className="text-sm text-gray-500">{case_.patientData.age} years</p>
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{case_.date}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className={getStatusColor(case_.status)}>
-                        {case_.status === "in-progress" && <Clock className="w-3 h-3 mr-1" />}
-                        {case_.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
-                        {case_.status === "report-ready" && <FileText className="w-3 h-3 mr-1" />}
-                        {case_.status.replace("-", " ")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{case_.diagnosis}</TableCell>
-                    <TableCell>
-                      {case_.severity && (
-                        <Badge variant="secondary" className={getSeverityColor(case_.severity)}>
-                          {case_.severity}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span>{new Date(case_.createdAt).toLocaleDateString()}</span>
+                          <span className="text-sm text-gray-500">
+                            {new Date(case_.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getStatusColor(case_.status)}>
+                          {case_.status.charAt(0).toUpperCase() + case_.status.slice(1)}
                         </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
-                            <Eye className="w-4 h-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit Case
-                          </DropdownMenuItem>
-                          {case_.status === "completed" && (
+                      </TableCell>
+                      <TableCell>
+                        {case_.analysisResults ? (
+                          <div className="space-y-1">
+                            <Badge className={getSeverityColor(case_.analysisResults.severity)}>
+                              {case_.analysisResults.severity || 'N/A'}
+                            </Badge>
+                            <p className="text-sm text-gray-500">
+                              {case_.analysisResults.findings?.length || 0} findings
+                            </p>
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">No results yet</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigate(`/analysis/${case_.id}`)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Analysis
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/edit/${case_.id}`)}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit Case
+                            </DropdownMenuItem>
                             <DropdownMenuItem>
-                              <Download className="w-4 h-4 mr-2" />
+                              <Download className="mr-2 h-4 w-4" />
                               Download Report
                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete Case
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                              className="text-red-600"
+                              onClick={() => handleDeleteCase(case_.id)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete Case
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredCases.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8">
+                        No cases found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
