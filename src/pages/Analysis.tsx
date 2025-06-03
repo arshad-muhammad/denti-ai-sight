@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
@@ -17,7 +16,8 @@ import {
   Camera,
   Stethoscope,
   Award,
-  RefreshCw
+  RefreshCw,
+  Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,12 +25,26 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useAuth } from "@/lib/AuthContext";
+import { dentalCaseService, type DentalCase } from "@/lib/services/dentalCase";
+import { useToast } from "@/components/ui/use-toast";
+import { AIService } from '@/lib/services/aiService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const Analysis = () => {
   const { caseId } = useParams();
   const navigate = useNavigate();
   const [analysisStage, setAnalysisStage] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [caseData, setCaseData] = useState<DentalCase | null>(null);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [analysisResults, setAnalysisResults] = useState<any>(null);
 
   const analysisStages = [
     "Initializing AI Model...",
@@ -42,13 +56,89 @@ const Analysis = () => {
   ];
 
   useEffect(() => {
-    if (!isComplete) {
+    const loadCase = async () => {
+      if (!caseId || !user) {
+        navigate('/dashboard');
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const data = await dentalCaseService.getById(caseId);
+
+        if (!data) {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Case not found.',
+          });
+          navigate('/dashboard');
+          return;
+        }
+
+        if (data.userId !== user.uid) {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'You don\'t have permission to view this case.',
+          });
+          navigate('/dashboard');
+          return;
+        }
+
+        setCaseData(data);
+        
+        if (data.status === 'pending') {
+          startAnalysis();
+        }
+      } catch (error) {
+        console.error('Error loading case:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to load case data.',
+        });
+        navigate('/dashboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCase();
+  }, [caseId, user, navigate, toast]);
+
+  useEffect(() => {
+    if (!isComplete && caseData && caseData.status !== "completed") {
       const interval = setInterval(() => {
         setAnalysisStage((prev) => {
           if (prev < analysisStages.length - 1) {
             return prev + 1;
           } else {
             setIsComplete(true);
+            // Update case status to completed
+            if (caseId) {
+              dentalCaseService.update(caseId, {
+                status: "completed",
+                diagnosis: "Moderate Chronic Periodontitis", // This would come from AI
+                boneLoss: 35, // This would come from AI
+                severity: "moderate", // This would come from AI
+                confidence: 94, // This would come from AI
+                pathologies: [
+                  { name: "Horizontal Bone Loss", severity: "moderate", location: "Generalized" },
+                  { name: "Furcation Involvement", severity: "mild", location: "Molars 14, 15" },
+                  { name: "Widened PDL Space", severity: "mild", location: "Tooth 14" }
+                ],
+                treatmentPlan: [
+                  "Scaling and Root Planing (Full mouth)",
+                  "Periodontal Maintenance every 3 months",
+                  "Re-evaluation in 6-8 weeks",
+                  "Consider surgical intervention if no improvement",
+                  "Patient education on oral hygiene"
+                ],
+                prognosis: "Guarded",
+                followUp: "6-8 weeks"
+              });
+            }
             return prev;
           }
         });
@@ -56,29 +146,41 @@ const Analysis = () => {
 
       return () => clearInterval(interval);
     }
-  }, [isComplete, analysisStages.length]);
+  }, [isComplete, analysisStages.length, caseId, caseData]);
 
-  // Mock analysis results
-  const analysisResults = {
-    boneLoss: 35,
-    diagnosis: "Moderate Chronic Periodontitis",
-    severity: "moderate",
-    prognosis: "Guarded",
-    confidence: 94,
-    pathologies: [
-      { name: "Horizontal Bone Loss", severity: "moderate", location: "Generalized" },
-      { name: "Furcation Involvement", severity: "mild", location: "Molars 14, 15" },
-      { name: "Widened PDL Space", severity: "mild", location: "Tooth 14" }
-    ],
-    treatmentPlan: [
-      "Scaling and Root Planing (Full mouth)",
-      "Periodontal Maintenance every 3 months",
-      "Re-evaluation in 6-8 weeks",
-      "Consider surgical intervention if no improvement",
-      "Patient education on oral hygiene"
-    ],
-    followUp: "6-8 weeks"
-  };
+  useEffect(() => {
+    if (!user || !caseId) return;
+
+    // Set up real-time listener for case updates
+    const unsubscribe = onSnapshot(
+      doc(db, 'cases', user.uid, 'cases', caseId),
+      (doc) => {
+        if (doc.exists()) {
+          const data = doc.data();
+          setCaseData(data);
+          setAnalysisResults(data.analysis);
+          setLoading(false);
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Case not found"
+          });
+          navigate('/dashboard');
+        }
+      },
+      (error) => {
+        console.error("Error fetching case:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load case data"
+        });
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user, caseId]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -106,6 +208,211 @@ const Analysis = () => {
     }
   };
 
+  const startAnalysis = async () => {
+    if (!caseId || !caseData) return;
+
+    try {
+      setAnalyzing(true);
+      // Start progress simulation
+      const interval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(interval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 1000);
+
+      // TODO: Implement actual AI analysis
+      // For now, we'll just simulate a delay
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Update case status
+      await dentalCaseService.update(caseId, {
+        status: 'completed',
+        analysisResults: {
+          // Mock results
+          findings: [],
+          confidence: 0.95,
+          recommendations: []
+        }
+      });
+
+      clearInterval(interval);
+      setProgress(100);
+      
+      // Reload case data
+      const updatedCase = await dentalCaseService.getById(caseId);
+      if (updatedCase) {
+        setCaseData(updatedCase);
+      }
+
+      toast({
+        title: 'Analysis Complete',
+        description: 'Your radiograph has been successfully analyzed.',
+      });
+    } catch (error) {
+      console.error('Error during analysis:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to analyze radiograph.',
+      });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const renderAnalysisResults = () => {
+    if (!analysisResults) return null;
+
+    const { diagnosis, confidence, findings, recommendations } = analysisResults;
+
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5" />
+              Primary Diagnosis
+            </CardTitle>
+            <CardDescription>
+              AI-powered analysis results with {(confidence * 100).toFixed(1)}% confidence
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold text-medical-600">{diagnosis}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              Detailed Findings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {findings.boneLoss && (
+              <div>
+                <h4 className="font-semibold mb-2">Bone Loss Assessment</h4>
+                <Badge variant={
+                  findings.boneLoss.severity === 'severe' ? 'destructive' :
+                  findings.boneLoss.severity === 'moderate' ? 'warning' : 'default'
+                }>
+                  {findings.boneLoss.severity.toUpperCase()}
+                </Badge>
+                <p className="mt-2 text-sm text-gray-600">
+                  Affected regions: {findings.boneLoss.regions.join(', ')}
+                </p>
+              </div>
+            )}
+
+            {findings.caries && (
+              <div>
+                <h4 className="font-semibold mb-2">Caries Detection</h4>
+                {findings.caries.detected ? (
+                  <>
+                    <Badge variant="destructive">DETECTED</Badge>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Locations: {findings.caries.locations.join(', ')}
+                    </p>
+                  </>
+                ) : (
+                  <Badge variant="default">NONE DETECTED</Badge>
+                )}
+              </div>
+            )}
+
+            {findings.pathologies && findings.pathologies.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-2">Other Pathologies</h4>
+                <ul className="space-y-2">
+                  {findings.pathologies.map((pathology, index) => (
+                    <li key={index} className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                      <span>{pathology.type} - {pathology.location}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Recommendations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="list-disc pl-4 space-y-2">
+              {recommendations.map((rec, index) => (
+                <li key={index}>{rec}</li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-lg">
+          <CardHeader className="text-center space-y-6">
+            <div className="w-20 h-20 bg-medical-100 rounded-full flex items-center justify-center mx-auto">
+              <Brain className="w-10 h-10 text-medical-600 animate-pulse" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl mb-2">Loading Case Data</CardTitle>
+              <CardDescription>Please wait while we retrieve your case information...</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-medical-600 rounded-full w-1/2 animate-[loader_1s_ease-in-out_infinite]" />
+              </div>
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Loading case data...</span>
+                <span>50%</span>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="h-24 rounded-lg bg-gray-100 animate-pulse" />
+              <div className="h-24 rounded-lg bg-gray-100 animate-pulse" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!caseData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold mb-2">Case Not Found</h2>
+              <p className="text-gray-600 mb-4">The case you're looking for doesn't exist or you don't have permission to view it.</p>
+              <Button onClick={() => navigate("/dashboard")}>
+                Return to Dashboard
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!isComplete) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -121,38 +428,49 @@ const Analysis = () => {
           </div>
         </header>
 
-        <div className="flex items-center justify-center min-h-[80vh]">
-          <Card className="w-full max-w-md mx-4">
-            <CardHeader className="text-center">
-              <div className="w-16 h-16 bg-medical-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Brain className="w-8 h-8 text-medical-600 animate-pulse" />
+        <div className="flex items-center justify-center min-h-[80vh] p-4">
+          <Card className="w-full max-w-2xl">
+            <CardHeader className="text-center space-y-6">
+              <div className="w-24 h-24 bg-medical-100 rounded-full flex items-center justify-center mx-auto">
+                <Brain className="w-12 h-12 text-medical-600 animate-pulse" />
               </div>
-              <CardTitle>AI Analysis in Progress</CardTitle>
-              <CardDescription>
-                Our advanced AI is analyzing your radiograph
-              </CardDescription>
+              <div>
+                <CardTitle className="text-2xl mb-2">AI Analysis in Progress</CardTitle>
+                <CardDescription>Our advanced AI is analyzing your dental radiograph</CardDescription>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span>Progress</span>
+            <CardContent className="space-y-8">
+              <div className="space-y-2">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-medical-600 rounded-full transition-all duration-500 ease-in-out"
+                    style={{ width: `${((analysisStage + 1) / analysisStages.length) * 100}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>{analysisStages[analysisStage]}</span>
                   <span>{Math.round(((analysisStage + 1) / analysisStages.length) * 100)}%</span>
                 </div>
-                <Progress value={((analysisStage + 1) / analysisStages.length) * 100} />
               </div>
               
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {analysisStages.map((stage, index) => (
                   <div key={index} className="flex items-center space-x-3">
                     {index < analysisStage ? (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      </div>
                     ) : index === analysisStage ? (
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-medical-100 flex items-center justify-center">
                       <RefreshCw className="w-4 h-4 text-medical-600 animate-spin" />
+                      </div>
                     ) : (
-                      <Clock className="w-4 h-4 text-gray-300" />
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
+                        <Clock className="w-4 h-4 text-gray-400" />
+                      </div>
                     )}
                     <span className={`text-sm ${
-                      index <= analysisStage ? 'text-gray-900' : 'text-gray-400'
+                      index <= analysisStage ? 'text-gray-900 font-medium' : 'text-gray-400'
                     }`}>
                       {stage}
                     </span>
@@ -160,9 +478,9 @@ const Analysis = () => {
                 ))}
               </div>
 
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
                   Analysis typically takes 30-60 seconds. Please do not refresh the page.
                 </AlertDescription>
               </Alert>
@@ -174,6 +492,7 @@ const Analysis = () => {
   }
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b px-6 py-4">
@@ -205,223 +524,124 @@ const Analysis = () => {
         <Alert className="mb-6 bg-green-50 border-green-200">
           <CheckCircle className="h-4 w-4 text-green-600" />
           <AlertDescription className="text-green-800">
-            <strong>Analysis Complete!</strong> AI diagnosis has been generated with {analysisResults.confidence}% confidence.
+            <strong>Analysis Complete!</strong> AI diagnosis has been generated with {caseData.confidence}% confidence.
           </AlertDescription>
         </Alert>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Analysis Results */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Diagnosis Overview */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Brain className="w-5 h-5 mr-2" />
-                  AI Diagnosis
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-2xl font-bold text-gray-900">{analysisResults.diagnosis}</h3>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <Badge variant="secondary" className={getSeverityColor(analysisResults.severity)}>
-                          {analysisResults.severity} severity
-                        </Badge>
-                        <Badge variant="outline">
-                          <Award className="w-3 h-3 mr-1" />
-                          {analysisResults.confidence}% confidence
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-4 bg-red-50 rounded-lg">
-                      <div className="text-2xl font-bold text-red-600">{analysisResults.boneLoss}%</div>
-                      <div className="text-sm text-red-800">Bone Loss Detected</div>
-                    </div>
-                    <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                      <div className={`text-2xl font-bold ${getPrognosisColor(analysisResults.prognosis)}`}>
-                        {analysisResults.prognosis}
-                      </div>
-                      <div className="text-sm text-gray-600">Prognosis</div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Detailed Findings */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Activity className="w-5 h-5 mr-2" />
-                  Detailed Pathology Findings
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {analysisResults.pathologies.map((pathology, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="font-medium">{pathology.name}</div>
-                        <div className="text-sm text-gray-600">{pathology.location}</div>
-                      </div>
-                      <Badge variant="secondary" className={getSeverityColor(pathology.severity)}>
-                        {pathology.severity}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Treatment Plan */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Target className="w-5 h-5 mr-2" />
-                  Recommended Treatment Plan
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {analysisResults.treatmentPlan.map((treatment, index) => (
-                    <div key={index} className="flex items-start space-x-3">
-                      <div className="w-6 h-6 bg-medical-100 rounded-full flex items-center justify-center text-medical-600 text-sm font-medium mt-0.5">
-                        {index + 1}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-gray-900">{treatment}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-4 h-4 text-blue-600" />
-                    <span className="font-medium text-blue-800">Recommended Follow-up:</span>
-                    <span className="text-blue-700">{analysisResults.followUp}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {renderAnalysisResults()}
           </div>
 
-          {/* Side Panel */}
+          {/* Patient Information */}
           <div className="space-y-6">
-            {/* Patient Summary */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <User className="w-5 h-5 mr-2" />
-                  Patient Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="text-sm">
-                  <div className="font-medium">John Doe</div>
-                  <div className="text-gray-600">Age 45, Male</div>
-                </div>
-                <Separator />
-                <div className="text-sm">
-                  <div className="font-medium mb-1">Risk Factors:</div>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge variant="outline" className="text-xs">Smoking</Badge>
-                    <Badge variant="outline" className="text-xs">Diabetes</Badge>
-                  </div>
-                </div>
-                <Separator />
-                <div className="text-sm">
-                  <div className="font-medium mb-1">Chief Complaint:</div>
-                  <p className="text-gray-600">Bleeding gums and loose teeth</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Radiograph Preview */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Camera className="w-5 h-5 mr-2" />
-                  Radiograph Analysis
+                  Patient Information
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center mb-4">
-                  <div className="text-center text-gray-600">
-                    <Camera className="w-12 h-12 mx-auto mb-2" />
-                    <p className="text-sm">X-ray with AI Overlay</p>
-                    <p className="text-xs">Bone loss highlighted</p>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Name</h4>
+                    <p className="text-gray-900">{caseData.patientName}</p>
                   </div>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Image Quality:</span>
-                    <Badge variant="outline" className="text-green-600">Excellent</Badge>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Age</h4>
+                    <p className="text-gray-900">{caseData.patientAge} years</p>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Analysis Time:</span>
-                    <span className="text-gray-600">45 seconds</span>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Gender</h4>
+                    <p className="text-gray-900">{caseData.patientGender}</p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-500">Contact Information</h4>
+                    <div className="space-y-2 mt-2">
+                      <p className="text-gray-900">{caseData.patientContact?.phone}</p>
+                      <p className="text-gray-900">{caseData.patientContact?.email}</p>
+                      <p className="text-gray-900">{caseData.patientContact?.address}</p>
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Clinical Integration */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Stethoscope className="w-5 h-5 mr-2" />
-                  Clinical Correlation
+                  Medical History
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="text-sm">
-                  <div className="font-medium mb-1">Clinical Findings:</div>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span>Pocket Depth:</span>
-                      <span className="text-red-600 font-medium">6mm</span>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center p-3 bg-gray-50 rounded">
+                      <div className="font-medium">Smoking</div>
+                      <div className={caseData.medicalHistory?.smoking ? "text-red-600" : "text-green-600"}>
+                        {caseData.medicalHistory?.smoking ? "Yes" : "No"}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Bleeding:</span>
-                      <CheckCircle className="w-4 h-4 text-red-500" />
+                    <div className="text-center p-3 bg-gray-50 rounded">
+                      <div className="font-medium">Alcohol</div>
+                      <div className={caseData.medicalHistory?.alcohol ? "text-red-600" : "text-green-600"}>
+                        {caseData.medicalHistory?.alcohol ? "Yes" : "No"}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Mobility:</span>
-                      <CheckCircle className="w-4 h-4 text-yellow-500" />
+                    <div className="text-center p-3 bg-gray-50 rounded">
+                      <div className="font-medium">Diabetes</div>
+                      <div className={caseData.medicalHistory?.diabetes ? "text-red-600" : "text-green-600"}>
+                        {caseData.medicalHistory?.diabetes ? "Yes" : "No"}
+                      </div>
+                    </div>
+                    <div className="text-center p-3 bg-gray-50 rounded">
+                      <div className="font-medium">Hypertension</div>
+                      <div className={caseData.medicalHistory?.hypertension ? "text-red-600" : "text-green-600"}>
+                        {caseData.medicalHistory?.hypertension ? "Yes" : "No"}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <Separator />
-                <div className="text-sm">
-                  <div className="font-medium mb-1">AI-Clinical Match:</div>
-                  <div className="flex items-center space-x-2">
-                    <Progress value={92} className="flex-1" />
-                    <span className="text-green-600 font-medium">92%</span>
-                  </div>
+
+                  {caseData.medicalHistory?.notes && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-500 mb-2">Additional Notes</h4>
+                      <p className="text-gray-900">{caseData.medicalHistory.notes}</p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Disclaimer */}
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="text-sm">
-                <strong>Medical Disclaimer:</strong> This AI analysis is for diagnostic assistance only. 
-                Final clinical decisions should always be made by qualified dental professionals.
-              </AlertDescription>
-            </Alert>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Camera className="w-5 h-5 mr-2" />
+                  Radiograph
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {caseData.radiographUrl ? (
+                  <img
+                    src={caseData.radiographUrl}
+                    alt="Dental Radiograph"
+                    className="w-full rounded-lg"
+                  />
+                ) : (
+                  <div className="text-center p-6 bg-gray-50 rounded-lg">
+                    <p className="text-gray-500">No radiograph available</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 };
 
