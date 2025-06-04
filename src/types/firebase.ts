@@ -1,4 +1,5 @@
 import { Timestamp } from "firebase/firestore";
+import { AnalysisResult } from "./analysis";
 
 export interface PatientContact {
   phone: string;
@@ -30,7 +31,8 @@ export interface Pathology {
 }
 
 export interface FirebaseDentalCase {
-  id?: string;
+  id: string;
+  userId: string;
   patientName: string;
   patientAge: number;
   patientGender: string;
@@ -48,7 +50,7 @@ export interface FirebaseDentalCase {
   prognosis?: string;
   followUp?: string;
   status: "pending" | "analyzing" | "completed" | "error";
-  userId: string;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  analysisResults?: AnalysisResult;
 } 

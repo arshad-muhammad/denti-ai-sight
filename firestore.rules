@@ -1,9 +1,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Base rules
     match /cases/{caseId} {
-      allow create: if request.auth != null;
-      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read, write: if request.auth != null;
+      
+      match /analysis/{analysisId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+    
+    // User-specific cases
+    match /cases/{userId}/cases/{caseId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      match /analysis/{analysisId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
   }
 } 

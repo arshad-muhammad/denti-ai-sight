@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarInitials } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,13 +41,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/lib/AuthContext";
-import { dentalCaseService, type DentalCase } from "@/lib/services/dentalCase";
+import { dentalCaseService } from "@/lib/services/dentalCase";
+import { FirebaseDentalCase } from "@/types/firebase";
 import { useToast } from "@/components/ui/use-toast";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
-  const [cases, setCases] = useState<DentalCase[]>([]);
+  const [cases, setCases] = useState<FirebaseDentalCase[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, logout } = useAuth();
   const { toast } = useToast();
@@ -85,7 +86,7 @@ const Dashboard = () => {
     {
       title: "This Month",
       value: cases.filter(c => {
-        const caseDate = new Date(c.createdAt);
+        const caseDate = c.createdAt?.toDate();
         if (!caseDate) return false;
         const now = new Date();
         return caseDate.getMonth() === now.getMonth() && 
@@ -104,7 +105,7 @@ const Dashboard = () => {
     },
     {
       title: "Active Patients",
-      value: new Set(cases.map(c => c.patientData.fullName)).size.toString(),
+      value: new Set(cases.map(c => c.patientName)).size.toString(),
       change: "+3",
       icon: Users,
       color: "bg-orange-500"
@@ -115,16 +116,16 @@ const Dashboard = () => {
     switch (status) {
       case "completed":
         return "bg-green-100 text-green-800";
-      case "in-progress":
+      case "analyzing":
         return "bg-yellow-100 text-yellow-800";
-      case "report-ready":
-        return "bg-blue-100 text-blue-800";
+      case "error":
+        return "bg-red-100 text-red-800";
       default:
         return "bg-gray-100 text-gray-800";
     }
   };
 
-  const getSeverityColor = (severity: string | null) => {
+  const getSeverityColor = (severity: string | undefined) => {
     switch (severity) {
       case "mild":
         return "bg-green-100 text-green-800";
@@ -174,7 +175,7 @@ const Dashboard = () => {
   };
 
   const filteredCases = cases.filter(c => 
-    c.patientData.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -225,7 +226,7 @@ const Dashboard = () => {
         </div>
       </header>
 
-      <div className="p-6">
+      <div className="container mx-auto px-4 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => (
@@ -287,82 +288,83 @@ const Dashboard = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCases.map((case_) => (
-                    <TableRow key={case_.id}>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Avatar className="w-8 h-8">
-                            <AvatarFallback>{case_.patientData.fullName.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{case_.patientData.fullName}</p>
-                            <p className="text-sm text-gray-500">{case_.patientData.age} years</p>
+                  {filteredCases.length > 0 ? (
+                    filteredCases.map((case_) => (
+                      <TableRow key={case_.id}>
+                        <TableCell>
+                          <div className="flex items-center space-x-2">
+                            <Avatar className="w-8 h-8">
+                              <AvatarFallback>{case_.patientName.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">{case_.patientName}</p>
+                              <p className="text-sm text-gray-500">{case_.patientAge} years</p>
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span>{new Date(case_.createdAt).toLocaleDateString()}</span>
-                          <span className="text-sm text-gray-500">
-                            {new Date(case_.createdAt).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getStatusColor(case_.status)}>
-                          {case_.status.charAt(0).toUpperCase() + case_.status.slice(1)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {case_.analysisResults ? (
-                          <div className="space-y-1">
-                            <Badge className={getSeverityColor(case_.analysisResults.severity)}>
-                              {case_.analysisResults.severity || 'N/A'}
-                            </Badge>
-                            <p className="text-sm text-gray-500">
-                              {case_.analysisResults.findings?.length || 0} findings
-                            </p>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{case_.createdAt?.toDate().toLocaleDateString()}</span>
+                            <span className="text-sm text-gray-500">
+                              {case_.createdAt?.toDate().toLocaleTimeString()}
+                            </span>
                           </div>
-                        ) : (
-                          <span className="text-gray-500">No results yet</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => navigate(`/analysis/${case_.id}`)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              View Analysis
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => navigate(`/edit/${case_.id}`)}>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit Case
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download Report
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                              className="text-red-600"
-                              onClick={() => handleDeleteCase(case_.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete Case
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredCases.length === 0 && (
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getStatusColor(case_.status)}>
+                            {case_.status.charAt(0).toUpperCase() + case_.status.slice(1)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {case_.analysisResults ? (
+                            <div className="space-y-1">
+                              <Badge className={getSeverityColor(case_.severity)}>
+                                {case_.severity || 'N/A'}
+                              </Badge>
+                              <p className="text-sm text-gray-500">
+                                {case_.pathologies?.length || 0} findings
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">No results yet</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => navigate(`/analysis/${case_.id}`)}>
+                                <Eye className="mr-2 h-4 w-4" />
+                                View Analysis
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => navigate(`/edit/${case_.id}`)}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                Edit Case
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Download className="mr-2 h-4 w-4" />
+                                Download Report
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                className="text-red-600"
+                                onClick={() => handleDeleteCase(case_.id)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete Case
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={5} className="text-center py-8">
                         No cases found
                       </TableCell>
                     </TableRow>
