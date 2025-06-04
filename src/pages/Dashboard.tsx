@@ -54,6 +54,7 @@ import { generatePDFReport } from "@/services/reportService";
 import { getEnhancedAnalysis } from '@/services/geminiService';
 import { LogoutConfirmDialog } from "@/components/LogoutConfirmDialog";
 import type { GeminiAnalysisInput } from '@/services/geminiService';
+import { LoadingOverlay } from '@/components/LoadingOverlay';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -78,6 +79,8 @@ const Dashboard = () => {
     loading: true,
     error: null
   });
+
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // Fetch health tips using Gemini API
   useEffect(() => {
@@ -352,6 +355,8 @@ const Dashboard = () => {
 
   const handleDownloadReport = async (caseData: FirebaseDentalCase) => {
     try {
+      setIsGeneratingReport(true);
+      
       // Get enhanced analysis first
       const enhancedAnalysis = await getEnhancedAnalysis({
         diagnosis: caseData.diagnosis || '',
@@ -364,7 +369,7 @@ const Dashboard = () => {
       });
 
       // Generate and download the report
-      generatePDFReport(caseData, enhancedAnalysis);
+      await generatePDFReport(caseData, enhancedAnalysis);
       
       toast({
         title: "Success",
@@ -377,6 +382,8 @@ const Dashboard = () => {
         description: "Failed to generate report. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -882,6 +889,10 @@ const Dashboard = () => {
           </Card>
         </div>
       </div>
+
+      {isGeneratingReport && (
+        <LoadingOverlay message="Generating comprehensive report... This may take a few moments." />
+      )}
     </div>
   );
 };

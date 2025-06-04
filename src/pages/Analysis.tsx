@@ -43,6 +43,8 @@ import { EditCaseDialog } from "@/components/EditCaseDialog";
 import { generatePDFReport } from "@/services/reportService";
 import { Finding } from "@/types/analysis";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { RadioGraphAnalysis } from "@/components/RadioGraphAnalysis";
+import { LoadingOverlay } from '@/components/LoadingOverlay';
 
 // Add these interfaces at the top of the file
 interface AIPathology {
@@ -90,6 +92,46 @@ interface EnhancedAnalysisState {
   error: Error | null;
 }
 
+// Add these helper functions at the top level
+const getPeriodontalStage = (boneLossPercent: number): { stage: string; prognosis: string } => {
+  if (boneLossPercent < 15) {
+    return {
+      stage: "Stage I - Initial Periodontitis",
+      prognosis: "Good"
+    };
+  } else if (15 <= boneLossPercent && boneLossPercent < 33) {
+    return {
+      stage: "Stage II - Moderate Periodontitis",
+      prognosis: "Fair"
+    };
+  } else if (33 <= boneLossPercent && boneLossPercent <= 50) {
+    return {
+      stage: "Stage III - Severe Periodontitis",
+      prognosis: "Questionable"
+    };
+  } else {
+    return {
+      stage: "Stage IV - Advanced Periodontitis",
+      prognosis: "Poor"
+    };
+  }
+};
+
+const getPrognosisColor = (prognosis: string | null) => {
+  switch (prognosis?.toLowerCase()) {
+    case 'good':
+      return 'text-green-600';
+    case 'fair':
+      return 'text-yellow-600';
+    case 'questionable':
+      return 'text-orange-600';
+    case 'poor':
+      return 'text-red-600';
+    default:
+      return 'text-gray-600';
+  }
+};
+
 const Analysis = () => {
   const { caseId } = useParams();
   const navigate = useNavigate();
@@ -107,6 +149,7 @@ const Analysis = () => {
     data: null,
     error: null
   });
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // Add a ref to track if the component is mounted
   const isMounted = useRef(true);
@@ -282,7 +325,16 @@ const Analysis = () => {
             radiographUrl: data.radiographUrl,
             status: data.status || 'pending',
             createdAt: data.createdAt,
-            updatedAt: data.updatedAt
+            updatedAt: data.updatedAt,
+            analysisResults: data.analysisResults || null,
+            diagnosis: data.diagnosis || null,
+            boneLoss: typeof data.boneLoss === 'number' ? data.boneLoss : null,
+            severity: data.severity || null,
+            confidence: typeof data.confidence === 'number' ? data.confidence : null,
+            pathologies: Array.isArray(data.pathologies) ? data.pathologies : [],
+            treatmentPlan: Array.isArray(data.treatmentPlan) ? data.treatmentPlan : [],
+            prognosis: data.prognosis || null,
+            followUp: data.followUp || null
           };
 
           setCaseData(updatedCase);
@@ -371,19 +423,6 @@ const Analysis = () => {
         return "bg-red-100 text-red-800";
       default:
         return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getPrognosisColor = (prognosis: string) => {
-    switch (prognosis.toLowerCase()) {
-      case "good":
-        return "text-green-600";
-      case "guarded":
-        return "text-yellow-600";
-      case "poor":
-        return "text-red-600";
-      default:
-        return "text-gray-600";
     }
   };
 
@@ -631,32 +670,21 @@ const Analysis = () => {
   }, [isComplete, caseData, enhancedAnalysis.data, enhancedAnalysis.loading]);
 
   const renderAnalysisResults = () => {
-    console.log('Rendering analysis results:', {
-      caseData,
-      analysisResults: caseData?.analysisResults,
-      diagnosis: caseData?.diagnosis,
-      boneLoss: caseData?.boneLoss,
-      severity: caseData?.severity,
-      pathologies: caseData?.pathologies
-    });
-
     if (!caseData?.analysisResults && !caseData?.diagnosis) {
-      console.log('No analysis results to display');
       return null;
     }
 
     return (
       <div className="space-y-6">
-        {/* Primary Diagnosis Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Brain className="w-5 h-5" />
-              Primary Diagnosis
+              Primary Diagnosis & Measurements
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Disease Type */}
               <div className="p-4 bg-muted rounded-lg">
                 <h4 className="text-sm font-medium text-muted-foreground mb-1">Disease Type</h4>
@@ -677,11 +705,188 @@ const Analysis = () => {
                   )}
                 </div>
               </div>
+
+              {/* Periodontal Stage */}
+              {caseData.boneLoss && (
+                <div className="p-4 bg-muted rounded-lg col-span-full">
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Periodontal Stage</h4>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-semibold text-foreground">
+                        {getPeriodontalStage(caseData.boneLoss).stage}
+                      </span>
+                      <Badge variant="outline" className={getPrognosisColor(getPeriodontalStage(caseData.boneLoss).prognosis)}>
+                        Prognosis: {getPeriodontalStage(caseData.boneLoss).prognosis}
+                      </Badge>
+                    </div>
+                    {caseData.analysisResults?.periodontalStage && (
+                      <p className="text-sm text-muted-foreground mt-2">
+                        {caseData.analysisResults.periodontalStage.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Bone Measurements */}
+              {caseData.analysisResults?.findings?.boneLoss?.measurements && (
+                <div className="p-4 bg-muted rounded-lg col-span-full">
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Bone Measurements</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    {caseData.analysisResults.findings.boneLoss.measurements.map((measurement, index) => (
+                      <div key={index} className="flex flex-col gap-1">
+                        <span className="text-sm text-muted-foreground">{measurement.type}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold">{measurement.value.toFixed(1)} mm</span>
+                          <Badge variant="outline" className="text-xs">
+                            {(measurement.confidence * 100).toFixed(0)}% conf.
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Implant Prognosis */}
+              {caseData.analysisResults?.implantPrognosis && (
+                <div className="p-4 bg-muted rounded-lg col-span-full">
+                  <h4 className="text-sm font-medium text-muted-foreground mb-2">Implant Prognosis</h4>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-semibold text-foreground">
+                        Status: {caseData.analysisResults.implantPrognosis.status}
+                      </span>
+                    </div>
+                    {caseData.analysisResults.implantPrognosis.measurements && (
+                      <div className="grid grid-cols-3 gap-4">
+                        {Object.entries(caseData.analysisResults.implantPrognosis.measurements).map(([key, value]) => (
+                          <div key={key} className="flex flex-col gap-1">
+                            <span className="text-sm text-muted-foreground">
+                              {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </span>
+                            <span className="text-lg font-semibold">
+                              {value?.toFixed(1) || 'N/A'} mm
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Pathologies Card */}
+        {/* Annotated Radiograph Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              Annotated Radiograph
+            </CardTitle>
+            <CardDescription>
+              Interactive bone loss measurement and staging
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {caseData.radiographUrl ? (
+              <div className="space-y-6">
+                <RadioGraphAnalysis
+                  imageUrl={caseData.radiographUrl}
+                  onMeasurementsChange={async (measurements) => {
+                    if (caseId) {
+                      try {
+                        // Get periodontal stage based on bone loss percentage
+                        const periodontalStaging = getPeriodontalStage(measurements.boneLossPercentage);
+                        
+                        // Determine severity based on bone loss percentage
+                        let severity: 'mild' | 'moderate' | 'severe';
+                        if (measurements.boneLossPercentage < 33) {
+                          severity = 'mild';
+                        } else if (measurements.boneLossPercentage < 50) {
+                          severity = 'moderate';
+                        } else {
+                          severity = 'severe';
+                        }
+
+                        // Prepare the update data
+                        const updateData = {
+                          boneLoss: measurements.boneLossPercentage,
+                          severity: severity,
+                          prognosis: periodontalStaging.prognosis,
+                          analysisResults: {
+                            ...caseData.analysisResults,
+                            findings: {
+                              ...caseData.analysisResults?.findings,
+                              boneLoss: {
+                                ...caseData.analysisResults?.findings?.boneLoss,
+                                measurements: [
+                                  {
+                                    type: 'CEJ Y',
+                                    value: measurements.cejY,
+                                    confidence: 1
+                                  },
+                                  {
+                                    type: 'Bone Y',
+                                    value: measurements.boneY,
+                                    confidence: 1
+                                  },
+                                  {
+                                    type: 'Apex Y',
+                                    value: measurements.apexY,
+                                    confidence: 1
+                                  }
+                                ],
+                                percentage: measurements.boneLossPercentage,
+                                severity: severity
+                              }
+                            },
+                            periodontalStage: {
+                              stage: periodontalStaging.stage,
+                              description: `${periodontalStaging.stage} with ${measurements.boneLossPercentage.toFixed(1)}% bone loss. Prognosis: ${periodontalStaging.prognosis}`
+                            }
+                          }
+                        };
+
+                        // Update Firestore
+                        await updateDoc(doc(db, 'cases', caseId), updateData);
+
+                        // Update local state
+                        setCaseData(prev => {
+                          if (!prev) return null;
+                          return {
+                            ...prev,
+                            ...updateData
+                          };
+                        });
+
+                        toast({
+                          title: "Measurements Updated",
+                          description: "Primary diagnosis has been updated with new measurements.",
+                        });
+                      } catch (error) {
+                        console.error('Error updating measurements:', error);
+                        toast({
+                          title: "Error",
+                          description: "Failed to update measurements",
+                          variant: "destructive"
+                        });
+                      }
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="text-center p-6 bg-gray-50 rounded-lg">
+                <p className="text-gray-500">No radiograph available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Detailed Findings Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -943,65 +1148,6 @@ const Analysis = () => {
             )}
           </CardContent>
         </Card>
-
-        {/* Annotated Radiograph Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Annotated Radiograph
-            </CardTitle>
-            <CardDescription>
-              AI annotations highlighting detected pathologies
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {caseData.radiographUrl ? (
-              <div id="annotated-radiograph" className="relative">
-                <img
-                  src={caseData.radiographUrl}
-                  alt="Annotated Dental Radiograph"
-                  className="w-full rounded-lg"
-                />
-                {caseData.analysisResults?.annotations && (
-                  <div className="absolute inset-0">
-                    {/* Add SVG overlay for annotations */}
-                    <svg className="absolute inset-0 w-full h-full">
-                      {caseData.pathologies?.map((pathology, index) => (
-                        <g key={index}>
-                          <circle
-                            cx={`${50 + index * 10}%`}
-                            cy="50%"
-                            r="20"
-                            fill="none"
-                            stroke={pathology.severity === 'severe' ? 'red' : 
-                                   pathology.severity === 'moderate' ? 'yellow' : 'green'}
-                            strokeWidth="2"
-                            opacity="0.6"
-                          />
-                          <text
-                            x={`${50 + index * 10}%`}
-                            y="50%"
-                            textAnchor="middle"
-                            fill="white"
-                            fontSize="12"
-                            className="font-medium"
-                          >
-                            {pathology.name}
-                          </text>
-                        </g>
-                      ))}
-                    </svg>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center p-6 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No radiograph available</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     );
   };
@@ -1113,6 +1259,9 @@ const Analysis = () => {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-background">
+        {isGeneratingReport && (
+          <LoadingOverlay message="Generating comprehensive report... This may take a few moments." />
+        )}
         <PageHeader 
           title="Case Analysis"
           description="AI-powered dental radiograph analysis"
@@ -1135,21 +1284,28 @@ const Analysis = () => {
                 }
               />
               <Button 
-                onClick={() => {
+                onClick={async () => {
                   try {
-                    generatePDFReport(caseData, enhancedAnalysis.data);
+                    setIsGeneratingReport(true);
+                    // Wait for next render cycle to ensure canvas is updated
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await generatePDFReport(caseData, enhancedAnalysis.data);
                     toast({
                       title: "Success",
                       description: "Report has been downloaded successfully.",
                     });
                   } catch (error) {
+                    console.error('Error generating report:', error);
                     toast({
                       title: "Error",
                       description: "Failed to generate report. Please try again.",
                       variant: "destructive",
                     });
+                  } finally {
+                    setIsGeneratingReport(false);
                   }
                 }}
+                disabled={!caseData}
               >
                 <Download className="w-4 h-4 mr-2" />
                 Download Report

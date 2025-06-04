@@ -112,6 +112,7 @@ export const useAIService = () => {
       setIsLoading(true);
 
       if (!API_KEY) {
+        console.error('API Key missing in environment:', import.meta.env);
         throw new AIServiceError('API configuration is missing. Please check your environment variables.');
       }
 
@@ -123,6 +124,7 @@ export const useAIService = () => {
         reader.readAsDataURL(file);
       });
 
+      console.log('Attempting API call to:', API_URL);
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -139,6 +141,11 @@ export const useAIService = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
+        console.error('API request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData
+        });
         throw new AIServiceError(
           errorData?.error || `API request failed with status ${response.status}`
         );

@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import { EnhancedAnalysis } from "@/types/analysis";
 
 // Get the API key from Vite's environment variables
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -7,14 +8,14 @@ if (!GEMINI_API_KEY) {
   console.error('VITE_GEMINI_API_KEY is not defined in environment variables. Please add it to your .env file.');
 }
 
-// Initialize the Gemini API with safety settings
+// Initialize the Gemini API
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
 
-// Configure the model with optimized settings for dental diagnosis
-const modelConfig = {
-  model: "gemini-1.0-pro",
+// Get the model with configuration
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-flash",
   generationConfig: {
-    temperature: 0.3, // Lower temperature for more focused and consistent outputs
+    temperature: 0.3,
     topK: 20,
     topP: 0.85,
     maxOutputTokens: 2048,
@@ -37,7 +38,7 @@ const modelConfig = {
       threshold: HarmBlockThreshold.BLOCK_NONE,
     },
   ],
-};
+});
 
 // Define confidence thresholds
 const CONFIDENCE_THRESHOLDS = {
@@ -91,38 +92,7 @@ interface GeminiAnalysisInput {
   };
 }
 
-interface GeminiAnalysisResult {
-  refinedPrognosis: {
-    status: 'Good' | 'Fair' | 'Poor';
-    explanation: string;
-    riskFactors: string[];
-    longTermOutlook: string;
-  };
-  detailedTreatmentPlan: {
-    immediate: string[];
-    shortTerm: string[];
-    longTerm: string[];
-    preventiveMeasures: string[];
-    lifestyle: string[];
-  };
-  detailedFindings: {
-    primaryCondition: {
-      description: string;
-      severity: string;
-      implications: string[];
-    };
-    secondaryFindings: Array<{
-      condition: string;
-      description: string;
-      severity: string;
-      implications: string[];
-    }>;
-    riskAssessment: {
-      current: string;
-      future: string;
-      mitigationStrategies: string[];
-    };
-  };
+interface GeminiAnalysisResult extends EnhancedAnalysis {
   diagnosticConfidence?: {
     overall: number;
     details: string[];
@@ -131,26 +101,66 @@ interface GeminiAnalysisResult {
   };
 }
 
-// Add validation helper functions
 const validateResponse = (parsedResult: GeminiAnalysisResult) => {
-  // Ensure detailed descriptions
-  if (parsedResult.detailedFindings.primaryCondition.description.length < 50) {
+  try {
+    // Check for required top-level properties
+    const requiredProperties = ['refinedPrognosis', 'detailedTreatmentPlan', 'detailedFindings'];
+    for (const prop of requiredProperties) {
+      if (!parsedResult[prop]) {
+        console.warn(`Missing required property: ${prop}`);
+        return false;
+      }
+    }
+
+    // Validate detailed findings
+    const { detailedFindings } = parsedResult;
+    if (!detailedFindings.primaryCondition?.description) {
+      console.warn('Missing primary condition description');
+      return false;
+    }
+
+    // Check for minimum description length and content quality
+    const description = detailedFindings.primaryCondition.description;
+    if (description.length < 50) {
+      console.warn('Primary condition description too short');
     return false;
   }
 
   // Verify measurement inclusions
-  if (!parsedResult.detailedFindings.primaryCondition.description.match(/\d+/)) {
+    if (!description.match(/\d+(?:\.\d+)?(?:\s*%|\s*mm)/)) {
+      console.warn('Missing numerical measurements in description');
     return false;
   }
 
-  // Check for specific terminology
+    // Check for required clinical terminology
   const requiredTerms = ['periodontal', 'radiographic', 'clinical'];
-  if (!requiredTerms.some(term => 
-    parsedResult.detailedFindings.primaryCondition.description.toLowerCase().includes(term))) {
+    const hasRequiredTerms = requiredTerms.some(term => 
+      description.toLowerCase().includes(term)
+    );
+    if (!hasRequiredTerms) {
+      console.warn('Missing required clinical terminology');
+      return false;
+    }
+
+    // Validate treatment plan
+    const { detailedTreatmentPlan } = parsedResult;
+    if (!detailedTreatmentPlan.immediate?.length || !detailedTreatmentPlan.longTerm?.length) {
+      console.warn('Missing treatment plan details');
+      return false;
+    }
+
+    // Validate prognosis
+    const { refinedPrognosis } = parsedResult;
+    if (!['Good', 'Fair', 'Poor', 'Questionable'].includes(refinedPrognosis.status)) {
+      console.warn('Invalid prognosis status');
     return false;
   }
 
   return true;
+  } catch (error) {
+    console.error('Error during response validation:', error);
+    return false;
+  }
 };
 
 const validateDiagnosticCriteria = (findings: AIFindings) => {
@@ -198,11 +208,7 @@ export const getEnhancedAnalysis = async (input: GeminiAnalysisInput): Promise<G
   }
 
   const basePrompt = `You are an advanced dental AI diagnostic system with expertise in periodontal and radiographic analysis. 
-Provide a high-confidence diagnostic assessment based on the following case data.
-
-DIAGNOSTIC CRITERIA:
-- Initial confidence score: ${(confidenceScore * 100).toFixed(1)}%
-- Validation points: ${validations.join(', ')}
+Analyze the following case and provide a detailed response in JSON format.
 
 CASE DETAILS:
 Primary Diagnosis: ${input.diagnosis}
@@ -213,36 +219,54 @@ Patient Profile:
 - Gender: ${input.patientData.gender}
 - Medical History: ${JSON.stringify(input.patientData.medicalHistory, null, 2)}
 
-ANALYSIS REQUIREMENTS:
-1. Focus on evidence-based findings with clear measurements
-2. Correlate radiographic findings with clinical data
-3. Consider patient-specific risk factors and modifiers
-4. Provide confidence levels for each major finding
-5. Include differential diagnoses where applicable
-6. Specify measurement methods and diagnostic criteria used
+IMPORTANT: Your response MUST:
+1. Include specific measurements (in mm or %)
+2. Use clinical terminology
+3. Provide detailed descriptions (minimum 50 words)
+4. Follow the exact JSON structure below
+5. Include all required fields
 
-DIAGNOSTIC GUIDELINES:
-1. Bone Loss Assessment:
-   - Mild: 0-30% bone loss
-   - Moderate: 31-50% bone loss
-   - Severe: >50% bone loss
-
-2. Periodontal Assessment:
-   - Pocket depths and their locations
-   - Furcation involvement grades
-   - Mobility patterns
-   - Gingival recession measurements
-
-3. Risk Factor Analysis:
-   - Systemic conditions impact
-   - Lifestyle factors
-   - Age-related considerations
-   - Genetic predisposition indicators`;
+Required JSON format:
+{
+  "refinedPrognosis": {
+    "status": "Good|Fair|Poor|Questionable",
+    "explanation": "string",
+    "riskFactors": ["string"],
+    "longTermOutlook": "string"
+  },
+  "detailedTreatmentPlan": {
+    "immediate": ["string"],
+    "shortTerm": ["string"],
+    "longTerm": ["string"],
+    "preventiveMeasures": ["string"],
+    "lifestyle": ["string"]
+  },
+  "detailedFindings": {
+    "primaryCondition": {
+      "description": "string (min 50 words, include measurements)",
+      "severity": "string",
+      "implications": ["string"]
+    },
+    "secondaryFindings": [
+      {
+        "condition": "string",
+        "description": "string",
+        "severity": "string",
+        "implications": ["string"]
+      }
+    ],
+    "riskAssessment": {
+      "current": "string",
+      "future": "string",
+      "mitigationStrategies": ["string"]
+    }
+  }
+}`;
 
   try {
-    const model = genAI.getGenerativeModel(modelConfig);
     let attempts = 0;
     const maxAttempts = 3;
+    let lastError = null;
 
     while (attempts < maxAttempts) {
       try {
@@ -250,58 +274,56 @@ DIAGNOSTIC GUIDELINES:
         const response = await result.response;
         const text = response.text();
         
+        // Extract JSON from the response
         const jsonMatch = text.match(/\{[\s\S]*\}/);
-        const jsonString = jsonMatch ? jsonMatch[0] : text;
+        if (!jsonMatch) {
+          throw new Error('No valid JSON found in response');
+        }
+
+        const parsedResult = JSON.parse(jsonMatch[0]);
         
-        try {
-          const parsedResult = JSON.parse(jsonString);
-          
-          if (!parsedResult.refinedPrognosis || !parsedResult.detailedTreatmentPlan || !parsedResult.detailedFindings) {
-            throw new Error('Invalid response structure');
-          }
-
-          // Enhanced validation
+        // Validate the response
           if (!validateResponse(parsedResult)) {
-            throw new Error('Response lacks required detail or measurements');
-          }
+          throw new Error('Response validation failed');
+        }
 
-          // Add confidence metrics to the response
-          parsedResult.diagnosticConfidence = {
+        // Add confidence metrics
+        return {
+          ...parsedResult,
+          diagnosticConfidence: {
             overall: confidenceScore,
             details: validations,
             timestamp: new Date().toISOString(),
-            modelVersion: "1.0"
-          };
-
-          // Ensure status is one of the allowed values
-          if (!['Good', 'Fair', 'Poor'].includes(parsedResult.refinedPrognosis.status)) {
-            parsedResult.refinedPrognosis.status = 'Fair';
+            modelVersion: "gemini-1.5-flash"
           }
-
-          return parsedResult as GeminiAnalysisResult;
-        } catch (parseError) {
-          console.warn('Validation failed:', parseError);
-        }
-      } catch (generateError) {
-        console.warn(`Attempt ${attempts + 1} failed:`, generateError);
-      }
-      
-      attempts++;
-      if (attempts < maxAttempts) {
-        modelConfig.generationConfig.temperature = Math.max(0.2, 0.3 - attempts * 0.05);
+        };
+      } catch (error) {
+        lastError = error;
+        console.warn(`Attempt ${attempts + 1} failed:`, error);
+        attempts++;
+        
+        // Add delay between retries
         await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
       }
     }
 
-    throw new Error('Failed to generate valid analysis after multiple attempts');
+    // If all attempts fail, throw the last error
+    throw new Error(`Failed to generate valid analysis after ${maxAttempts} attempts: ${lastError?.message}`);
   } catch (error) {
-    console.error('Error getting enhanced analysis from Gemini:', error);
-    
-    // Return fallback response with confidence metrics
-    const fallbackResponse: GeminiAnalysisResult = {
+    console.error('Error in getEnhancedAnalysis:', error);
+    throw error;
+  }
+};
+
+const getFallbackResponse = (
+  input: GeminiAnalysisInput,
+  confidenceScore: number,
+  validations: string[]
+): GeminiAnalysisResult => {
+  return {
       refinedPrognosis: {
         status: input.findings.boneLoss?.severity === 'severe' ? 'Poor' :
-               input.findings.boneLoss?.severity === 'moderate' ? 'Fair' : 'Good' as 'Good' | 'Fair' | 'Poor',
+             input.findings.boneLoss?.severity === 'moderate' ? 'Fair' : 'Good',
         explanation: `Based on the ${input.diagnosis}, a thorough professional evaluation is recommended for accurate prognosis.`,
         riskFactors: [
           input.patientData.medicalHistory.smoking ? 'Active smoker - increased risk of periodontal disease' : 'Non-smoker',
@@ -378,7 +400,4 @@ DIAGNOSTIC GUIDELINES:
         modelVersion: "1.0"
       }
     };
-
-    return fallbackResponse;
-  }
 }; 

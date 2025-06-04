@@ -10,7 +10,7 @@ export type FindingType =
   | 'other';
 
 export type Severity = 'mild' | 'moderate' | 'severe';
-export type Prognosis = 'Good' | 'Fair' | 'Poor';
+export type Prognosis = 'Good' | 'Fair' | 'Poor' | 'Questionable';
 export type MobilityGrade = 0 | 1 | 2 | 3;
 
 export interface ProbingDepths {
@@ -52,20 +52,25 @@ export interface Finding {
 
 export interface Annotation {
   type: string;
-  location: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  location: string;
   severity: Severity;
+  bbox?: [number, number, number, number];
   label: string;
+}
+
+export interface BoneLossMeasurement {
+  type: 'Bone Loss:Apex Y' | 'Bone Y' | 'CEJ Y';
+  value: number;
+  confidence: number;
 }
 
 export interface BoneLossAssessment {
   percentage: number;
   severity: Severity;
   regions: string[];
+  measurements: BoneLossMeasurement[];
+  confidence: number;
+  overlayImage?: string;
 }
 
 export interface AnalysisResult {
@@ -100,4 +105,48 @@ export interface AnalysisMetadata {
   };
   processingTime: number;
   modelVersion: string;
+}
+
+export interface EnhancedAnalysis {
+  refinedPrognosis: {
+    status: Prognosis;
+    explanation: string;
+    riskFactors: string[];
+    longTermOutlook: string;
+    periodontalStage?: {
+      stage: string;
+      description: string;
+      implications: string[];
+    };
+  };
+  detailedTreatmentPlan: {
+    immediate: string[];
+    shortTerm: string[];
+    longTerm: string[];
+    preventiveMeasures: string[];
+    lifestyle: string[];
+  };
+  detailedFindings: {
+    primaryCondition: {
+      description: string;
+      severity: string;
+      implications: string[];
+      measurements?: {
+        boneLossApexY?: number;
+        boneY?: number;
+        cejY?: number;
+      };
+    };
+    secondaryFindings: Array<{
+      condition: string;
+      description: string;
+      severity: string;
+      implications: string[];
+    }>;
+    riskAssessment: {
+      current: string;
+      future: string;
+      mitigationStrategies: string[];
+    };
+  };
 }

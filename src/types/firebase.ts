@@ -1,5 +1,6 @@
 import { Timestamp } from "firebase/firestore";
 import { AnalysisResult } from "./analysis";
+import { Severity, Prognosis, BoneLossAssessment, Finding, Annotation } from './analysis';
 
 export interface PatientContact {
   phone: string;
@@ -26,7 +27,7 @@ export interface ClinicalFindings {
 
 export interface Pathology {
   name: string;
-  severity: "mild" | "moderate" | "severe";
+  severity: Severity;
   location: string;
 }
 
@@ -40,17 +41,41 @@ export interface FirebaseDentalCase {
   medicalHistory: MedicalHistory;
   clinicalFindings: ClinicalFindings;
   symptoms: string[];
-  radiographUrl?: string;
-  diagnosis?: string;
-  boneLoss?: number;
-  severity?: "mild" | "moderate" | "severe";
-  confidence?: number;
-  pathologies?: Pathology[];
-  treatmentPlan?: string[];
-  prognosis?: string;
-  followUp?: string;
-  status: "pending" | "analyzing" | "completed" | "error";
+  radiographUrl: string | null;
+  status: 'pending' | 'analyzing' | 'completed' | 'error';
   createdAt: Timestamp;
   updatedAt: Timestamp;
-  analysisResults?: AnalysisResult;
+  analysisResults?: {
+    timestamp: Timestamp;
+    diagnosis: string;
+    confidence: number;
+    findings: {
+      boneLoss?: BoneLossAssessment;
+      pathologies?: Finding[];
+    };
+    recommendations: string[];
+    severity: Severity;
+    annotations?: Annotation[];
+    periodontalStage?: {
+      stage: string;
+      description: string;
+      implications: string[];
+    };
+    implantPrognosis?: {
+      status: Prognosis;
+      measurements: {
+        boneLossApexY?: number;
+        boneY?: number;
+        cejY?: number;
+      };
+    };
+  } | null;
+  diagnosis: string | null;
+  boneLoss: number | null;
+  severity: Severity | null;
+  confidence: number | null;
+  pathologies: Pathology[];
+  treatmentPlan: string[];
+  prognosis: Prognosis | null;
+  followUp: string | null;
 } 
