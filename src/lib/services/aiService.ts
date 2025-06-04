@@ -249,30 +249,52 @@ interface AIServiceResponse {
 }
 
 export interface AIAnalysisResult {
-  timestamp: Timestamp;
   diagnosis: string;
   confidence: number;
-  severity: Severity;
   findings: {
-    boneLoss?: {
+    boneLoss: {
+      measurements: AIBoneLossMeasurement[];
       percentage: number;
-      severity: Severity;
+      severity: 'mild' | 'moderate' | 'severe';
       regions: string[];
+      confidence: number;
+      overlayImage?: string;
     };
-    pathologies?: Finding[];
+    pathologies: AIPathology[];
   };
   recommendations: string[];
+  severity: 'mild' | 'moderate' | 'severe';
   annotations?: Array<{
     type: string;
-    location: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
-    severity: Severity;
+    bbox: [number, number, number, number];
     label: string;
   }>;
+}
+
+export interface AIPathology {
+  type: string;
+  confidence: number;
+  location: string;
+  severity: string;
+  bbox?: [number, number, number, number];
+}
+
+export interface AIBoneLossMeasurement {
+  type: 'Bone Loss:Apex Y' | 'Bone Y' | 'CEJ Y';
+  value: number;
+  confidence: number;
+}
+
+export interface AIFindings {
+  boneLoss: {
+    measurements: AIBoneLossMeasurement[];
+    percentage: number;
+    severity: 'mild' | 'moderate' | 'severe';
+    regions: string[];
+    confidence: number;
+    overlayImage?: string;
+  };
+  pathologies: AIPathology[];
 }
 
 export class AIService {
@@ -504,86 +526,79 @@ export class AIService {
       // Simulate API call with mock data for now
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const mockResponse: AIServiceResponse = {
-        diagnosis: "Moderate periodontal disease with localized bone loss",
-        confidence: 0.92,
+      const mockResponse: MockResponse = {
         findings: {
           boneLoss: {
             measurements: [
               {
-                toothNumber: '16',
-                cejToBone: 4.2,
-                normalBoneLevel: 2.1,
                 boneLossPercentage: 35,
-                pocketDepth: 5,
-                probingDepths: {
-                  distal: 5,
-                  buccal: 4,
-                  mesial: 5,
-                  lingual: 4
-                },
-                mobilityGrade: 1,
-                prognosis: 'Fair',
-                severity: 'moderate'
+                cejToBone: 4.2
               },
               {
-                toothNumber: '17',
-                cejToBone: 3.8,
-                normalBoneLevel: 2.0,
                 boneLossPercentage: 30,
-                pocketDepth: 4,
-                probingDepths: {
-                  distal: 4,
-                  buccal: 3,
-                  mesial: 4,
-                  lingual: 3
-                },
-                mobilityGrade: 0,
-                prognosis: 'Good',
-                severity: 'mild'
+                cejToBone: 3.8
               }
             ],
             severity: 'moderate',
-            confidence: 0.89,
             overlayImage: "data:image/png;base64,..."
           },
           pathologies: [
             {
               type: "bone_loss",
-              confidence: 0.95,
-              location: "Upper right quadrant",
+              confidence: 0.92,
+              location: "Upper right molar region",
+              severity: "moderate",
               bbox: [100, 150, 200, 250]
             }
           ]
         },
-        metadata: {
-          timestamp: new Date().toISOString(),
-          imageQuality: {
-            score: 0.85,
-            issues: []
-          },
-          processingTime: 1.2,
-          modelVersion: "1.0.0"
-        },
+        confidence: 0.92,
+        diagnosis: "Moderate periodontal disease with localized bone loss",
         recommendations: [
           "Deep cleaning (scaling and root planing)",
           "Improved oral hygiene routine",
           "Follow-up in 6-8 weeks"
         ],
-        prognosis: "Fair with proper treatment adherence"
+        severity: 'moderate',
+        annotations: [
+          {
+            type: "bone_loss",
+            bbox: [100, 150, 200, 250],
+            label: "bone_loss"
+          }
+        ]
       };
 
       // Transform response to AnalysisResult
+      const boneLossMeasurements: AIBoneLossMeasurement[] = [
+        {
+          type: 'Bone Loss:Apex Y',
+          value: mockResponse.findings.boneLoss.measurements[0].boneLossPercentage,
+          confidence: mockResponse.confidence
+        },
+        {
+          type: 'Bone Y',
+          value: mockResponse.findings.boneLoss.measurements[1].boneLossPercentage,
+          confidence: mockResponse.confidence
+        },
+        {
+          type: 'CEJ Y',
+          value: mockResponse.findings.boneLoss.measurements[0].cejToBone,
+          confidence: mockResponse.confidence
+        }
+      ];
+
       return {
-        timestamp: Timestamp.now(),
         diagnosis: mockResponse.diagnosis,
         confidence: mockResponse.confidence,
-        severity: mockResponse.findings.boneLoss.severity,
         findings: {
           boneLoss: {
+            measurements: boneLossMeasurements,
             percentage: mockResponse.findings.boneLoss.measurements[0].boneLossPercentage,
             severity: mockResponse.findings.boneLoss.severity,
-            regions: ['General']
+            regions: ['General'],
+            confidence: mockResponse.confidence,
+            overlayImage: mockResponse.findings.boneLoss.overlayImage
           },
           pathologies: mockResponse.findings.pathologies.map(p => ({
             type: p.type,
@@ -593,17 +608,8 @@ export class AIService {
           }))
         },
         recommendations: mockResponse.recommendations,
-        annotations: mockResponse.findings.pathologies.map(p => ({
-          type: p.type,
-          location: {
-            x: p.bbox[0],
-            y: p.bbox[1],
-            width: p.bbox[2] - p.bbox[0],
-            height: p.bbox[3] - p.bbox[1]
-          },
-          severity: 'mild',
-          label: p.type
-        }))
+        severity: mockResponse.severity,
+        annotations: mockResponse.annotations
       };
     } catch (error) {
       console.error('Error in AI analysis:', error);
@@ -613,4 +619,27 @@ export class AIService {
       throw new AIServiceError('AI analysis failed with an unknown error');
     }
   }
+}
+
+interface MockResponse {
+  findings: {
+    boneLoss: {
+      measurements: Array<{
+        boneLossPercentage: number;
+        cejToBone: number;
+      }>;
+      severity: 'mild' | 'moderate' | 'severe';
+      overlayImage?: string;
+    };
+    pathologies: AIPathology[];
+  };
+  confidence: number;
+  diagnosis: string;
+  recommendations: string[];
+  severity: 'mild' | 'moderate' | 'severe';
+  annotations?: Array<{
+    type: string;
+    bbox: [number, number, number, number];
+    label: string;
+  }>;
 }

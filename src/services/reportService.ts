@@ -4,6 +4,7 @@ import { UserOptions } from 'jspdf-autotable';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import html2canvas from 'html2canvas';
+import { getProxiedImageUrl } from '@/lib/services/imageProxy';
 
 interface EnhancedAnalysis {
   refinedPrognosis: {
@@ -46,21 +47,39 @@ interface jsPDFWithAutoTable extends jsPDF {
   };
 }
 
-// Helper function to load and convert image to base64
-const loadImage = async (url: string): Promise<string> => {
-  try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.error('Error loading image:', error);
-    throw error;
-  }
+// Helper function to load and verify image
+const loadAndVerifyImage = async (url: string): Promise<HTMLImageElement> => {
+  console.log('Loading image from URL:', url);
+  
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      console.log('Image loaded successfully:', {
+        width: img.width,
+        height: img.height,
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight
+      });
+      
+      // Verify image has actual dimensions
+      if (img.width === 0 || img.height === 0) {
+        reject(new Error('Loaded image has no dimensions'));
+        return;
+      }
+      
+      resolve(img);
+    };
+
+    img.onerror = (e) => {
+      console.error('Image load error:', e);
+      reject(new Error('Failed to load image'));
+    };
+
+    // Set src after setting up event handlers
+    img.src = url;
+  });
 };
 
 // Helper function to draw annotations
@@ -216,6 +235,16 @@ const drawAnnotations = (
   doc.restoreGraphicsState();
 };
 
+// Helper function to check if we need a new page
+const checkAndAddNewPage = (doc: jsPDFWithAutoTable, yPos: number, minSpaceNeeded: number = 40) => {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (yPos + minSpaceNeeded > pageHeight - 20) {
+    doc.addPage();
+    return 20; // Reset yPos to top of new page with margin
+  }
+  return yPos;
+};
+
 export const generatePDFReport = async (
   caseData: FirebaseDentalCase,
   enhancedAnalysis: EnhancedAnalysis | null
@@ -242,6 +271,7 @@ export const generatePDFReport = async (
   // Helper function for text wrapping
   const addWrappedText = (text: string, x: number, y: number, maxWidth: number) => {
     const lines = doc.splitTextToSize(text, maxWidth);
+    y = checkAndAddNewPage(doc, y, lines.length * 7);
     doc.text(lines, x, y);
     return y + (lines.length * 7);
   };
@@ -257,6 +287,97 @@ export const generatePDFReport = async (
   doc.setTextColor(100);
   doc.text(`Report Generated: ${format(new Date(), 'PPpp')}`, margin, yPos);
   yPos += 10;
+
+  // Add radiograph image if available
+  if (caseData.radiographUrl) {
+    try {
+      console.log('Starting radiograph processing for PDF...');
+      
+      // Add new page for the radiograph
+      doc.addPage();
+      const radiographPage = doc.getNumberOfPages();
+      
+      // Get proxied URL to handle CORS
+      console.log('Getting proxied URL for:', caseData.radiographUrl);
+      const proxiedUrl = await getProxiedImageUrl(caseData.radiographUrl);
+      console.log('Proxied URL obtained:', proxiedUrl);
+
+      // Load and verify the image
+      const img = await loadAndVerifyImage(proxiedUrl);
+      console.log('Image loaded and verified');
+
+      // Create a canvas with specific dimensions
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not get canvas context');
+      }
+
+      // Draw the image with error handling
+      try {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        console.log('Image drawn to canvas successfully');
+      } catch (drawError) {
+        console.error('Error drawing image to canvas:', drawError);
+        throw new Error('Failed to draw image to canvas');
+      }
+
+      // Convert to base64 with error handling
+      let imgData: string;
+      try {
+        imgData = canvas.toDataURL('image/jpeg', 0.95);
+        console.log('Canvas converted to data URL successfully');
+        
+        if (!imgData.startsWith('data:image/jpeg;base64,')) {
+          throw new Error('Invalid data URL format');
+        }
+      } catch (dataUrlError) {
+        console.error('Error converting canvas to data URL:', dataUrlError);
+        throw new Error('Failed to convert image to proper format');
+      }
+
+      // Clean up the blob URL
+      URL.revokeObjectURL(proxiedUrl);
+
+      // Calculate dimensions to fit in PDF
+      const pdfWidth = doc.internal.pageSize.getWidth() - (2 * margin);
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      // Add image to PDF with error handling
+      try {
+        doc.setPage(radiographPage);
+        doc.addImage(imgData, 'JPEG', margin, margin, pdfWidth, pdfHeight);
+        console.log('Image added to PDF successfully');
+      } catch (pdfError) {
+        console.error('Error adding image to PDF:', pdfError);
+        throw new Error('Failed to add image to PDF document');
+      }
+
+      // Add caption
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text('Dental Radiograph', pageWidth / 2, margin + pdfHeight + 10, { align: 'center' });
+
+      // Return to first page
+      doc.setPage(1);
+      
+    } catch (error) {
+      console.error('Error processing radiograph for PDF:', error);
+      // Add detailed error message to PDF
+      doc.setFontSize(10);
+      doc.setTextColor(255, 0, 0);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      yPos = checkAndAddNewPage(doc, yPos, 20);
+      doc.text(`* Radiograph image could not be loaded: ${errorMessage}`, margin, yPos);
+      yPos += 10;
+    }
+  }
+
+  // Before adding any section, check if we need a new page
+  yPos = checkAndAddNewPage(doc, yPos, 40);
 
   // Patient Information Section
   doc.setFontSize(14);
@@ -292,7 +413,7 @@ export const generatePDFReport = async (
   // Primary Diagnosis Section
   doc.setFontSize(14);
   doc.setTextColor(0, 83, 155);
-  doc.text("Primary Diagnosis", margin, yPos);
+  doc.text("Primary Diagnosis & Measurements", margin, yPos);
   yPos += 10;
 
   doc.setFontSize(10);
@@ -301,7 +422,9 @@ export const generatePDFReport = async (
     ["Diagnosis:", caseData.diagnosis || 'N/A'],
     ["Confidence:", `${caseData.confidence}%`],
     ["Severity:", caseData.severity || 'N/A'],
-    ["Bone Loss:", caseData.boneLoss ? `${caseData.boneLoss}%` : 'N/A']
+    ["Bone Loss:", caseData.boneLoss ? `${caseData.boneLoss}%` : 'N/A'],
+    ["Periodontal Stage:", caseData.analysisResults?.periodontalStage?.stage || 'N/A'],
+    ["Prognosis:", caseData.prognosis || 'N/A']
   ];
 
   autoTable(doc, {
@@ -312,76 +435,45 @@ export const generatePDFReport = async (
 
   yPos = doc.lastAutoTable.finalY + 10;
 
-  // Enhanced Analysis Section (if available)
-  if (enhancedAnalysis) {
-    // Detailed Findings
-    doc.setFontSize(14);
+  // Add bone measurements if available
+  if (caseData.analysisResults?.findings?.boneLoss?.measurements) {
+    doc.setFontSize(12);
     doc.setTextColor(0, 83, 155);
-    doc.text("Detailed Findings", margin, yPos);
+    doc.text("Detailed Measurements", margin, yPos);
     yPos += 10;
 
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    yPos = addWrappedText(
-      enhancedAnalysis.detailedFindings.primaryCondition.description,
-      margin,
-      yPos,
-      pageWidth - (2 * margin)
-    ) + 10;
+    // Create measurements table data
+    const measurements = caseData.analysisResults.findings.boneLoss.measurements;
+    const cejY = measurements.find(m => m.type === 'CEJ Y')?.value;
+    const boneY = measurements.find(m => m.type === 'Bone Y')?.value;
+    const apexY = measurements.find(m => m.type === 'Bone Loss:Apex Y')?.value;
 
-    // Treatment Plan
-    doc.setFontSize(14);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Treatment Plan", margin, yPos);
-    yPos += 10;
-
-    const treatmentPlan = [
-      ["Immediate:", enhancedAnalysis.detailedTreatmentPlan.immediate.join("\n")],
-      ["Short-term:", enhancedAnalysis.detailedTreatmentPlan.shortTerm.join("\n")],
-      ["Long-term:", enhancedAnalysis.detailedTreatmentPlan.longTerm.join("\n")],
-      ["Preventive:", enhancedAnalysis.detailedTreatmentPlan.preventiveMeasures.join("\n")]
+    const measurementData = [
+      ["CEJ Position", cejY?.toFixed(1) || 'N/A', 'mm'],
+      ["Bone Level", boneY?.toFixed(1) || 'N/A', 'mm'],
+      ["Apex Position", apexY?.toFixed(1) || 'N/A', 'mm'],
+      ["Root Length", (cejY !== undefined && apexY !== undefined) ? 
+        (apexY - cejY).toFixed(1) : 'N/A', 'mm'],
+      ["CEJ to Bone", (cejY !== undefined && boneY !== undefined) ?
+        (boneY - cejY).toFixed(1) : 'N/A', 'mm'],
+      ["Bone Loss", `${caseData.boneLoss || 'N/A'}`, '%'],
+      ["Periodontal Stage", caseData.analysisResults.periodontalStage?.stage || 'N/A', '']
     ];
 
     autoTable(doc, {
-      ...tableOptions,
       startY: yPos,
-      body: treatmentPlan,
+      head: [["Measurement", "Value", "Unit"]],
+      body: measurementData,
+      theme: 'plain',
+      styles: { fontSize: 10 },
       columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 40 },
-        1: { cellWidth: pageWidth - margin - 40 }
+        0: { cellWidth: 60 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 20 }
       }
     });
 
     yPos = doc.lastAutoTable.finalY + 10;
-
-    // Add new page if needed
-    if (yPos > doc.internal.pageSize.getHeight() - 40) {
-      doc.addPage();
-      yPos = 20;
-    }
-
-    // Prognosis
-    doc.setFontSize(14);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Prognosis & Risk Assessment", margin, yPos);
-    yPos += 10;
-
-    const prognosisInfo = [
-      ["Status:", enhancedAnalysis.refinedPrognosis.status],
-      ["Outlook:", enhancedAnalysis.refinedPrognosis.longTermOutlook],
-      ["Current Risk:", enhancedAnalysis.detailedFindings.riskAssessment.current],
-      ["Future Risk:", enhancedAnalysis.detailedFindings.riskAssessment.future]
-    ];
-
-    autoTable(doc, {
-      ...tableOptions,
-      startY: yPos,
-      body: prognosisInfo,
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 40 },
-        1: { cellWidth: pageWidth - margin - 40 }
-      }
-    });
   }
 
   // Annotated Radiograph section
@@ -495,6 +587,8 @@ export const generatePDFReport = async (
             2: { cellWidth: 40 }
           }
         });
+
+        yPos = doc.lastAutoTable.finalY + 10;
       }
 
     } catch (error) {
@@ -505,7 +599,222 @@ export const generatePDFReport = async (
     }
   }
 
-  // Add footer with page numbers
+  // Enhanced Analysis Section (if available)
+  if (enhancedAnalysis) {
+    // Add new page for detailed findings
+    doc.addPage();
+    yPos = 20;
+    
+    // Detailed Findings
+    doc.setFontSize(14);
+    doc.setTextColor(0, 83, 155);
+    doc.text("Detailed Findings", margin, yPos);
+    yPos += 10;
+
+    // Primary Condition
+    doc.setFontSize(12);
+    doc.setTextColor(0, 83, 155);
+    doc.text("Primary Condition", margin, yPos);
+    yPos += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    yPos = addWrappedText(
+      enhancedAnalysis.detailedFindings.primaryCondition.description,
+      margin,
+      yPos,
+      pageWidth - (2 * margin)
+    ) + 10;
+
+    // Clinical Implications
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text("Clinical Implications:", margin, yPos);
+    yPos += 10;
+
+    enhancedAnalysis.detailedFindings.primaryCondition.implications.forEach(imp => {
+      yPos = addWrappedText(
+        `• ${imp}`,
+        margin + 10,
+        yPos,
+        pageWidth - (2 * margin) - 10
+      ) + 5;
+    });
+    yPos += 10;
+
+    // Secondary Findings
+    if (enhancedAnalysis.detailedFindings.secondaryFindings.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Secondary Findings", margin, yPos);
+      yPos += 10;
+
+      enhancedAnalysis.detailedFindings.secondaryFindings.forEach(finding => {
+        doc.setFontSize(10);
+        doc.setTextColor(0);
+        doc.text(finding.condition, margin, yPos);
+        yPos += 7;
+
+        yPos = addWrappedText(
+          finding.description,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+
+        doc.text("Implications:", margin + 10, yPos);
+        yPos += 7;
+
+        finding.implications.forEach(imp => {
+          yPos = addWrappedText(
+            `• ${imp}`,
+            margin + 20,
+            yPos,
+            pageWidth - (2 * margin) - 20
+          ) + 5;
+        });
+        yPos += 5;
+      });
+    }
+
+    // Add new page if needed
+    if (yPos > doc.internal.pageSize.getHeight() - 40) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    // Risk Assessment
+    doc.setFontSize(12);
+    doc.setTextColor(0, 83, 155);
+    doc.text("Risk Assessment", margin, yPos);
+    yPos += 10;
+
+    const riskAssessment = [
+      ["Current Risk:", enhancedAnalysis.detailedFindings.riskAssessment.current],
+      ["Future Risk:", enhancedAnalysis.detailedFindings.riskAssessment.future]
+    ];
+
+    autoTable(doc, {
+      ...tableOptions,
+      startY: yPos,
+      body: riskAssessment
+    });
+
+    yPos = doc.lastAutoTable.finalY + 10;
+
+    // Mitigation Strategies
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text("Risk Mitigation Strategies:", margin, yPos);
+    yPos += 7;
+
+    enhancedAnalysis.detailedFindings.riskAssessment.mitigationStrategies.forEach(strategy => {
+      yPos = addWrappedText(
+        `• ${strategy}`,
+        margin + 10,
+        yPos,
+        pageWidth - (2 * margin) - 10
+      ) + 5;
+    });
+    yPos += 10;
+
+    // Treatment Plan
+    doc.setFontSize(14);
+    doc.setTextColor(0, 83, 155);
+    doc.text("Comprehensive Treatment Plan", margin, yPos);
+    yPos += 10;
+
+    // Immediate Actions
+    if (enhancedAnalysis.detailedTreatmentPlan.immediate.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Immediate Actions", margin, yPos);
+      yPos += 7;
+
+      enhancedAnalysis.detailedTreatmentPlan.immediate.forEach(action => {
+        yPos = addWrappedText(
+          `• ${action}`,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+      });
+      yPos += 5;
+    }
+
+    // Short-term Plan
+    if (enhancedAnalysis.detailedTreatmentPlan.shortTerm.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Short-term Plan", margin, yPos);
+      yPos += 7;
+
+      enhancedAnalysis.detailedTreatmentPlan.shortTerm.forEach(action => {
+        yPos = addWrappedText(
+          `• ${action}`,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+      });
+      yPos += 5;
+    }
+
+    // Long-term Plan
+    if (enhancedAnalysis.detailedTreatmentPlan.longTerm.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Long-term Plan", margin, yPos);
+      yPos += 7;
+
+      enhancedAnalysis.detailedTreatmentPlan.longTerm.forEach(action => {
+        yPos = addWrappedText(
+          `• ${action}`,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+      });
+      yPos += 5;
+    }
+
+    // Preventive Measures
+    if (enhancedAnalysis.detailedTreatmentPlan.preventiveMeasures.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Preventive Measures", margin, yPos);
+      yPos += 7;
+
+      enhancedAnalysis.detailedTreatmentPlan.preventiveMeasures.forEach(measure => {
+        yPos = addWrappedText(
+          `• ${measure}`,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+      });
+      yPos += 5;
+    }
+
+    // Lifestyle Recommendations
+    if (enhancedAnalysis.detailedTreatmentPlan.lifestyle.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Lifestyle Recommendations", margin, yPos);
+      yPos += 7;
+
+      enhancedAnalysis.detailedTreatmentPlan.lifestyle.forEach(rec => {
+        yPos = addWrappedText(
+          `• ${rec}`,
+          margin + 10,
+          yPos,
+          pageWidth - (2 * margin) - 10
+        ) + 5;
+      });
+    }
+  }
+
+  // Before saving, ensure all content fits
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
