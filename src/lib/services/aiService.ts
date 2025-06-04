@@ -248,29 +248,6 @@ interface AIServiceResponse {
   prognosis: string;
 }
 
-export interface AIAnalysisResult {
-  diagnosis: string;
-  confidence: number;
-  findings: {
-    boneLoss: {
-      measurements: AIBoneLossMeasurement[];
-      percentage: number;
-      severity: 'mild' | 'moderate' | 'severe';
-      regions: string[];
-      confidence: number;
-      overlayImage?: string;
-    };
-    pathologies: AIPathology[];
-  };
-  recommendations: string[];
-  severity: 'mild' | 'moderate' | 'severe';
-  annotations?: Array<{
-    type: string;
-    bbox: [number, number, number, number];
-    label: string;
-  }>;
-}
-
 export interface AIPathology {
   type: string;
   confidence: number;
@@ -280,9 +257,37 @@ export interface AIPathology {
 }
 
 export interface AIBoneLossMeasurement {
-  type: 'Bone Loss:Apex Y' | 'Bone Y' | 'CEJ Y';
-  value: number;
+  cejToBone: number;
+  severity: Severity;
+}
+
+export interface AIAnalysisResult {
+  diagnosis: string;
   confidence: number;
+  findings: {
+    boneLoss: {
+      measurements: AIBoneLossMeasurement[];
+      percentage: number;
+      severity: Severity;
+      regions: string[];
+      confidence: number;
+      overlayImage?: string;
+    };
+    bop?: {
+      totalSites: number;
+      bleedingSites: number;
+      percentage: number;
+      probingDepths: number[];
+    };
+    pathologies: Finding[];
+  };
+  recommendations: string[];
+  severity: Severity;
+  annotations?: Array<{
+    type: string;
+    bbox: [number, number, number, number];
+    label: string;
+  }>;
 }
 
 export interface AIFindings {
@@ -542,6 +547,12 @@ export class AIService {
             severity: 'moderate',
             overlayImage: "data:image/png;base64,..."
           },
+          bop: {
+            totalSites: 180,
+            bleedingSites: 25,
+            percentage: (25 / 180) * 100,
+            probingDepths: [3, 4, 5, 3, 2, 4, 6, 3, 2, 4]
+          },
           pathologies: [
             {
               type: "bone_loss",
@@ -572,19 +583,12 @@ export class AIService {
       // Transform response to AnalysisResult
       const boneLossMeasurements: AIBoneLossMeasurement[] = [
         {
-          type: 'Bone Loss:Apex Y',
-          value: mockResponse.findings.boneLoss.measurements[0].boneLossPercentage,
-          confidence: mockResponse.confidence
+          cejToBone: mockResponse.findings.boneLoss.measurements[0].cejToBone,
+          severity: mockResponse.findings.boneLoss.severity
         },
         {
-          type: 'Bone Y',
-          value: mockResponse.findings.boneLoss.measurements[1].boneLossPercentage,
-          confidence: mockResponse.confidence
-        },
-        {
-          type: 'CEJ Y',
-          value: mockResponse.findings.boneLoss.measurements[0].cejToBone,
-          confidence: mockResponse.confidence
+          cejToBone: mockResponse.findings.boneLoss.measurements[1].cejToBone,
+          severity: mockResponse.findings.boneLoss.severity
         }
       ];
 
@@ -600,10 +604,11 @@ export class AIService {
             confidence: mockResponse.confidence,
             overlayImage: mockResponse.findings.boneLoss.overlayImage
           },
+          bop: mockResponse.findings.bop,
           pathologies: mockResponse.findings.pathologies.map(p => ({
             type: p.type,
             location: p.location,
-            severity: 'mild',
+            severity: p.severity as Severity,
             confidence: p.confidence
           }))
         },
@@ -630,6 +635,12 @@ interface MockResponse {
       }>;
       severity: 'mild' | 'moderate' | 'severe';
       overlayImage?: string;
+    };
+    bop: {
+      totalSites: number;
+      bleedingSites: number;
+      percentage: number;
+      probingDepths: number[];
     };
     pathologies: AIPathology[];
   };

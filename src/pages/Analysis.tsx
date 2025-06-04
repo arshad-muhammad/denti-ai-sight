@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Shield,
   Heart,
-  Loader2
+  Loader2,
+  AlertOctagon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +47,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { RadioGraphAnalysis } from "@/components/RadioGraphAnalysis";
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 import { getStorage, ref, getDownloadURL } from 'firebase/storage';
+import { BoPAssessmentForm } from "@/components/BoPAssessmentForm";
+import { DiseaseProgressionRiskForm } from "@/components/DiseaseProgressionRiskForm";
 
 // Add these interfaces at the top of the file
 interface AIPathology {
@@ -765,6 +768,7 @@ const Analysis = () => {
 
     return (
       <div className="space-y-6">
+        {/* Primary Diagnosis Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -867,6 +871,83 @@ const Analysis = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Red Flag Alerts Card */}
+        {(caseData.clinicalFindings?.redFlags?.hematologicDisorder ||
+          caseData.clinicalFindings?.redFlags?.necrotizingPeriodontitis ||
+          caseData.clinicalFindings?.redFlags?.leukemiaSigns) && (
+          <Card className="border-red-500">
+            <CardHeader className="bg-red-50">
+              <CardTitle className="flex items-center gap-2 text-red-700">
+                <AlertTriangle className="w-5 h-5" />
+                Red Flag Alerts
+              </CardTitle>
+              <CardDescription className="text-red-600">
+                Urgent attention required for the following conditions
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Hematologic Disorder Alert */}
+                {caseData.clinicalFindings?.redFlags?.hematologicDisorder && (
+                  <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <AlertOctagon className="w-5 h-5 text-red-600 mt-1" />
+                    <div>
+                      <h4 className="font-medium text-red-700">Possible Hematologic Disorder</h4>
+                      <p className="text-sm text-red-600 mt-1">
+                        Severe bleeding ({caseData.clinicalFindings.bopScore}% BoP) with low plaque coverage ({caseData.clinicalFindings.plaqueCoverage}%) suggests underlying hematologic condition
+                      </p>
+                      <p className="text-sm font-medium text-red-700 mt-2">
+                        Recommendation: Immediate hematology referral
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Necrotizing Periodontitis Alert */}
+                {caseData.clinicalFindings?.redFlags?.necrotizingPeriodontitis && (
+                  <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <AlertOctagon className="w-5 h-5 text-red-600 mt-1" />
+                    <div>
+                      <h4 className="font-medium text-red-700">Suspected Necrotizing Periodontitis</h4>
+                      <p className="text-sm text-red-600 mt-1">
+                        Presence of tissue necrosis and/or ulcers indicates possible necrotizing periodontal disease
+                      </p>
+                      <p className="text-sm font-medium text-red-700 mt-2">
+                        Recommendation: Immediate periodontal intervention
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Leukemia Signs Alert */}
+                {caseData.clinicalFindings?.redFlags?.leukemiaSigns && (
+                  <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <AlertOctagon className="w-5 h-5 text-red-600 mt-1" />
+                    <div>
+                      <h4 className="font-medium text-red-700">Possible Leukemia Signs</h4>
+                      <p className="text-sm text-red-600 mt-1">
+                        Purple gingiva and gingival hyperplasia observed - potential indicators of leukemia
+                      </p>
+                      <p className="text-sm font-medium text-red-700 mt-2">
+                        Recommendation: Urgent oncology referral
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {caseData.clinicalFindings?.redFlags?.details && (
+                  <div className="mt-4 p-3 bg-red-50 rounded-lg">
+                    <h4 className="font-medium text-red-700 mb-1">Additional Notes</h4>
+                    <p className="text-sm text-red-600">
+                      {caseData.clinicalFindings.redFlags.details}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Annotated Radiograph Card */}
         <Card>
@@ -972,6 +1053,138 @@ const Analysis = () => {
                 <p className="text-gray-500">No radiograph available</p>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Bleeding on Probing (BoP) Assessment */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              Bleeding on Probing (BoP) Assessment
+            </CardTitle>
+            <CardDescription>
+              Evaluation of periodontal inflammation and disease activity
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BoPAssessmentForm
+              initialData={caseData.clinicalFindings}
+              onUpdate={async (data) => {
+                if (!caseId) return;
+
+                try {
+                  const caseRef = doc(db, 'cases', caseId);
+                  await updateDoc(caseRef, {
+                    'clinicalFindings.bopScore': data.bopScore,
+                    'clinicalFindings.totalSites': data.totalSites,
+                    'clinicalFindings.bleedingSites': data.bleedingSites,
+                    'clinicalFindings.anteriorBleeding': data.anteriorBleeding,
+                    'clinicalFindings.posteriorBleeding': data.posteriorBleeding,
+                    'clinicalFindings.deepPocketSites': data.deepPocketSites,
+                    'clinicalFindings.averagePocketDepth': data.averagePocketDepth,
+                    updatedAt: serverTimestamp()
+                  });
+
+                  setCaseData(prev => {
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      clinicalFindings: {
+                        ...prev.clinicalFindings,
+                        bopScore: data.bopScore,
+                        totalSites: data.totalSites,
+                        bleedingSites: data.bleedingSites,
+                        anteriorBleeding: data.anteriorBleeding,
+                        posteriorBleeding: data.posteriorBleeding,
+                        deepPocketSites: data.deepPocketSites,
+                        averagePocketDepth: data.averagePocketDepth
+                      },
+                      updatedAt: Timestamp.now()
+                    };
+                  });
+                } catch (error) {
+                  console.error('Error updating BoP data:', error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to update BoP assessment data",
+                    variant: "destructive"
+                  });
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Disease Progression Risk Score Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" />
+              Disease Progression Risk Score
+            </CardTitle>
+            <CardDescription>
+              Comprehensive risk assessment based on multiple factors
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DiseaseProgressionRiskForm
+              initialData={{
+                boneLossAgeRatio: caseData.boneLoss ? caseData.boneLoss / caseData.patientAge : 0,
+                bopFactor: caseData.clinicalFindings?.bopScore ? caseData.clinicalFindings.bopScore / 100 : 0,
+                clinicalAttachmentLoss: caseData.clinicalFindings?.clinicalAttachmentLoss || 0,
+                smokingStatus: caseData.medicalHistory?.smoking || false,
+                diabetesStatus: caseData.medicalHistory?.diabetes || false
+              }}
+              onUpdate={async (data) => {
+                if (!caseId) return;
+
+                try {
+                  const caseRef = doc(db, 'cases', caseId);
+                  await updateDoc(caseRef, {
+                    'clinicalFindings.riskScore': data.riskScore,
+                    'clinicalFindings.boneLossAgeRatio': data.boneLossAgeRatio,
+                    'clinicalFindings.bopFactor': data.bopFactor,
+                    'clinicalFindings.clinicalAttachmentLoss': data.clinicalAttachmentLoss,
+                    'medicalHistory.smoking': data.smokingStatus,
+                    'medicalHistory.diabetes': data.diabetesStatus,
+                    updatedAt: serverTimestamp()
+                  });
+
+                  setCaseData(prev => {
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      clinicalFindings: {
+                        ...prev.clinicalFindings,
+                        riskScore: data.riskScore,
+                        boneLossAgeRatio: data.boneLossAgeRatio,
+                        bopFactor: data.bopFactor,
+                        clinicalAttachmentLoss: data.clinicalAttachmentLoss
+                      },
+                      medicalHistory: {
+                        ...prev.medicalHistory,
+                        smoking: data.smokingStatus,
+                        diabetes: data.diabetesStatus
+                      },
+                      updatedAt: Timestamp.now()
+                    };
+                  });
+
+                  toast({
+                    title: "Success",
+                    description: "Risk assessment data has been updated successfully.",
+                  });
+                } catch (error) {
+                  console.error('Error updating risk assessment data:', error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to update risk assessment data",
+                    variant: "destructive"
+                  });
+                }
+              }}
+            />
           </CardContent>
         </Card>
 

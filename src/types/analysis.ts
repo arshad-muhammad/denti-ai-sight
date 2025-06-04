@@ -10,6 +10,7 @@ export type FindingType =
   | 'other';
 
 export type Severity = 'mild' | 'moderate' | 'severe';
+export type BoPSeverity = 'healthy' | 'moderate' | 'severe';
 export type Prognosis = 'Good' | 'Fair' | 'Poor' | 'Questionable';
 export type MobilityGrade = 0 | 1 | 2 | 3;
 
@@ -64,6 +65,13 @@ export interface BoneLossMeasurement {
   confidence: number;
 }
 
+export interface BoPData {
+  totalSites: number;
+  bleedingSites: number;
+  percentage: number;
+  probingDepths: number[];
+}
+
 export interface BoneLossAssessment {
   percentage: number;
   severity: Severity;
@@ -79,6 +87,7 @@ export interface AnalysisResult {
   confidence: number;
   findings: {
     boneLoss?: BoneLossAssessment;
+    bop?: BoPData;
     caries?: {
       detected: boolean;
       locations: string[];

@@ -23,6 +23,26 @@ export interface ClinicalFindings {
   sensitivity: boolean;
   pocketDepth: string;
   notes: string;
+  bopScore?: number;
+  anteriorBleeding?: number;
+  posteriorBleeding?: number;
+  totalSites?: number;
+  bleedingSites?: number;
+  deepPocketSites?: number;
+  averagePocketDepth?: number;
+  plaqueCoverage?: number;
+  tissueNecrosis?: boolean;
+  ulcersPresent?: boolean;
+  purpleGingiva?: boolean;
+  gingivalHyperplasia?: boolean;
+  clinicalAttachmentLoss?: number; // Average CAL in mm
+  riskScore?: number;
+  redFlags?: {
+    hematologicDisorder?: boolean;
+    necrotizingPeriodontitis?: boolean;
+    leukemiaSigns?: boolean;
+    details?: string;
+  };
 }
 
 export interface Pathology {
