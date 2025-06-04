@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, User, Upload, FileText, Brain, Loader2 } from "lucide-react";
+import { ArrowLeft, User, Upload, FileText, Brain, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PatientData, ClinicalData, Step } from "@/types/newCase";
@@ -13,6 +13,25 @@ import NavigationButtons from "@/components/NewCase/NavigationButtons";
 import { useAuth } from "@/lib/AuthContext";
 import { dentalCaseService } from "@/lib/services/dentalCase";
 import { useToast } from "@/components/ui/use-toast";
+import { PageHeader } from "@/components/layout/PageHeader";
+
+const steps: Step[] = [
+  {
+    title: "Upload Radiograph",
+    description: "Upload your dental X-ray image",
+    icon: Upload
+  },
+  {
+    title: "Patient Information",
+    description: "Enter patient details and medical history",
+    icon: User
+  },
+  {
+    title: "Review & Submit",
+    description: "Review case details and submit for analysis",
+    icon: FileText
+  }
+];
 
 const NewCase = () => {
   const navigate = useNavigate();
@@ -48,33 +67,6 @@ const NewCase = () => {
     pocketDepth: "",
     additionalNotes: ""
   });
-
-  const steps: Step[] = [
-    { 
-      number: 1, 
-      title: "Patient Information", 
-      icon: User,
-      description: "Basic patient details and contact information"
-    },
-    { 
-      number: 2, 
-      title: "Upload Radiograph", 
-      icon: Upload,
-      description: "Upload dental X-ray images for analysis"
-    },
-    { 
-      number: 3, 
-      title: "Clinical Examination", 
-      icon: FileText,
-      description: "Clinical findings and examination details"
-    },
-    { 
-      number: 4, 
-      title: "Review & Submit", 
-      icon: Brain,
-      description: "Review all information before AI analysis"
-    }
-  ];
 
   const handleNext = () => {
     if (currentStep < totalSteps) {
@@ -248,44 +240,65 @@ const NewCase = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-4">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" onClick={() => navigate("/dashboard")}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Dashboard
-          </Button>
-          <span className="text-gray-400">|</span>
-          <h1 className="text-xl font-semibold text-gray-900">New Case</h1>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background">
+      <PageHeader 
+        title="New Case Analysis"
+        description="Upload X-ray images for AI analysis"
+      />
 
-      {transitionLoading && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-lg shadow-xl flex flex-col items-center">
-            <Loader2 className="w-16 h-16 text-medical-600 animate-spin mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Preparing Analysis</h3>
-            <p className="text-gray-600">Please wait while we prepare your case...</p>
+      <div className="container py-6">
+        {transitionLoading && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-card p-8 rounded-lg shadow-xl flex flex-col items-center">
+              <Loader2 className="w-16 h-16 text-primary animate-spin mb-4" />
+              <h3 className="text-xl font-semibold text-foreground mb-2">Preparing Analysis</h3>
+              <p className="text-muted-foreground">Please wait while we prepare your case...</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="container mx-auto px-4 py-8">
         <Card>
           <CardHeader>
-            <CardTitle>Create New Case</CardTitle>
-            <CardDescription>
-              Fill in the required information to start AI analysis
-            </CardDescription>
+            <CardTitle>New Case</CardTitle>
+            <CardDescription>Create a new case for AI analysis</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <StepNavigation
-              currentStep={currentStep}
-              totalSteps={totalSteps}
-              steps={steps}
-            />
+            {/* Step Navigation */}
+            <div className="flex items-center">
+              {steps.map((step, index) => (
+                <div
+                  key={index}
+                  className={`flex items-center ${
+                    index + 1 === currentStep ? 'text-primary' : 'text-muted-foreground'
+                  }`}
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+                      index + 1 === currentStep
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : index + 1 < currentStep
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-muted-foreground bg-background text-muted-foreground'
+                    }`}
+                  >
+                    {index + 1 < currentStep ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                  </div>
+                  <span className="ml-2 font-medium">{step.title}</span>
+                  {index !== steps.length - 1 && (
+                    <div className="w-12 h-px bg-border mx-2" />
+                  )}
+                </div>
+              ))}
+            </div>
 
-            {renderStepContent()}
+            {/* Step Content */}
+            <div className="mt-6">
+              {renderStepContent()}
+            </div>
 
             <NavigationButtons
               currentStep={currentStep}

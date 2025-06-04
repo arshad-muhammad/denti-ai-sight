@@ -55,14 +55,21 @@ export const EditCaseDialog = ({ caseData, onUpdate, trigger }: EditCaseDialogPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const updatedCase = await dentalCaseService.update(caseData.id, formData);
+      // Transform form data to match FirebaseDentalCase structure
+      const updateData: Partial<FirebaseDentalCase> = {
+        patientName: formData.patientName,
+        patientAge: formData.patientAge,
+        patientGender: formData.patientGender,
+        patientContact: formData.patientContact,
+        medicalHistory: formData.medicalHistory,
+        clinicalFindings: formData.clinicalFindings
+      };
+
+      const updatedCase = await dentalCaseService.update(caseData.id, updateData);
       onUpdate(updatedCase);
       setIsOpen(false);
-      toast({
-        title: "Success",
-        description: "Case details have been updated successfully.",
-      });
     } catch (error) {
+      console.error('Error updating case:', error);
       toast({
         title: "Error",
         description: "Failed to update case details. Please try again.",
@@ -73,7 +80,10 @@ export const EditCaseDialog = ({ caseData, onUpdate, trigger }: EditCaseDialogPr
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
+      <DialogTrigger asChild onClick={(e) => {
+        e.stopPropagation();
+        setIsOpen(true);
+      }}>
         {trigger || <Button variant="outline">Edit Case</Button>}
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

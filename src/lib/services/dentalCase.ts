@@ -230,63 +230,64 @@ export const dentalCaseService = {
 
   async getById(id: string): Promise<FirebaseDentalCase | null> {
     try {
-      if (!id) return null;
-      
-      // Get the current user
       const auth = getAuth();
       const currentUser = auth.currentUser;
-      
+
       if (!currentUser) {
-        throw new Error('User not authenticated');
+        throw new Error('No authenticated user found');
       }
-      
-      // Try to get from both locations simultaneously
-      const [mainDocSnap, userCaseSnap] = await Promise.all([
-        getDoc(doc(db, 'cases', id)),
-        getDoc(doc(db, `cases/${currentUser.uid}/cases/${id}`))
-      ]);
-      
-      // Use user's subcollection data if it exists, otherwise use main collection
-      const docSnap = userCaseSnap.exists() ? userCaseSnap : mainDocSnap;
-      
+
+      const docRef = doc(db, 'cases', id);
+      const docSnap = await getDoc(docRef);
+
       if (!docSnap.exists()) {
         return null;
       }
 
       const data = docSnap.data();
-      
-      // Transform Firebase data back to DentalCase format
+
+      // Transform Firebase data to FirebaseDentalCase format
       return {
         id: docSnap.id,
         userId: data.userId || currentUser.uid,
-        patientData: {
-          fullName: data.patientName || "Anonymous Patient",
-          age: data.patientAge?.toString() || "0",
-          gender: data.patientGender || "",
-          phone: data.patientContact?.phone || "",
-          email: data.patientContact?.email || "",
-          address: data.patientContact?.address || "",
-          smoking: data.medicalHistory?.smoking || false,
-          alcohol: data.medicalHistory?.alcohol || false,
-          diabetes: data.medicalHistory?.diabetes || false,
-          hypertension: data.medicalHistory?.hypertension || false,
-          chiefComplaint: data.symptoms?.[0] || "",
-          medicalHistory: data.medicalHistory?.notes || ""
+        patientName: data.patientName || "Anonymous Patient",
+        patientAge: data.patientAge || 0,
+        patientGender: data.patientGender || "",
+        patientContact: data.patientContact || {
+          phone: "",
+          email: "",
+          address: ""
         },
-        clinicalData: {
-          toothNumber: data.clinicalFindings?.toothNumber || "",
-          mobility: data.clinicalFindings?.mobility || false,
-          bleeding: data.clinicalFindings?.bleeding || false,
-          sensitivity: data.clinicalFindings?.sensitivity || false,
-          pocketDepth: data.clinicalFindings?.pocketDepth || "",
-          additionalNotes: data.clinicalFindings?.notes || ""
+        medicalHistory: data.medicalHistory || {
+          smoking: false,
+          alcohol: false,
+          diabetes: false,
+          hypertension: false,
+          notes: ""
         },
+        clinicalFindings: data.clinicalFindings || {
+          toothNumber: "",
+          mobility: false,
+          bleeding: false,
+          sensitivity: false,
+          pocketDepth: "",
+          notes: ""
+        },
+        symptoms: data.symptoms || [],
         status: data.status || 'pending',
-        createdAt: data.createdAt?.toDate?.() || data.createdAt || new Date().toISOString(),
-        updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
-        radiographUrl: data.radiographUrl,
-        analysisResults: data.analysisResults
-      } as FirebaseDentalCase;
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+        radiographUrl: data.radiographUrl || null,
+        analysisResults: data.analysisResults || null,
+        diagnosis: data.diagnosis || null,
+        boneLoss: data.boneLoss || null,
+        severity: data.severity || null,
+        confidence: data.confidence || null,
+        pathologies: data.pathologies || [],
+        treatmentPlan: data.treatmentPlan || [],
+        prognosis: data.prognosis || null,
+        followUp: data.followUp || null
+      };
     } catch (error) {
       console.error('Error getting case:', error);
       if (error instanceof Error) {
@@ -296,13 +297,39 @@ export const dentalCaseService = {
     }
   },
 
-  async update(id: string, data: Partial<FirebaseDentalCase>): Promise<void> {
+  async update(id: string, data: Partial<FirebaseDentalCase>): Promise<FirebaseDentalCase> {
     try {
-      const docRef = doc(db, 'cases', id);
-      await updateDoc(docRef, {
+      // Get current user
+      const auth = getAuth();
+      const userId = auth.currentUser?.uid;
+
+      if (!userId) {
+        throw new Error('No authenticated user found');
+      }
+
+      // Create references to both locations
+      const mainCaseRef = doc(db, 'cases', id);
+      const userCaseRef = doc(db, `cases/${userId}/cases/${id}`);
+
+      // Prepare update data with timestamp
+      const updateData = {
         ...data,
         updatedAt: serverTimestamp()
-      });
+      };
+
+      // Update both locations
+      await Promise.all([
+        updateDoc(mainCaseRef, updateData),
+        updateDoc(userCaseRef, updateData)
+      ]);
+
+      // Fetch and return the updated case
+      const updatedCase = await this.getById(id);
+      if (!updatedCase) {
+        throw new Error('Failed to fetch updated case');
+      }
+
+      return updatedCase;
     } catch (error) {
       console.error('Error updating case:', error);
       if (error instanceof Error) {

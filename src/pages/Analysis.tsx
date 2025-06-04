@@ -20,7 +20,8 @@ import {
   Info,
   AlertCircle,
   Shield,
-  Heart
+  Heart,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +41,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { getEnhancedAnalysis } from '../services/geminiService';
 import { EditCaseDialog } from "@/components/EditCaseDialog";
 import { generatePDFReport } from "@/services/reportService";
+import { Finding } from "@/types/analysis";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 // Add these interfaces at the top of the file
 interface AIPathology {
@@ -651,23 +654,20 @@ const Analysis = () => {
               <Brain className="w-5 h-5" />
               Primary Diagnosis
             </CardTitle>
-            <CardDescription>
-              AI-powered analysis results with {caseData.confidence}% confidence
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               {/* Disease Type */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-500 mb-1">Disease Type</h4>
-                <p className="text-lg font-semibold text-medical-600">{caseData.diagnosis || 'Not available'}</p>
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">Disease Type</h4>
+                <p className="text-lg font-semibold text-foreground">{caseData.diagnosis || 'Not available'}</p>
               </div>
               
               {/* Bone Loss */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-500 mb-1">Bone Loss</h4>
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">Bone Loss</h4>
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-semibold text-medical-600">
+                  <span className="text-lg font-semibold text-foreground">
                     {caseData.boneLoss ? `${caseData.boneLoss}%` : 'Not available'}
                   </span>
                   {caseData.severity && (
@@ -957,7 +957,7 @@ const Analysis = () => {
           </CardHeader>
           <CardContent>
             {caseData.radiographUrl ? (
-              <div className="relative">
+              <div id="annotated-radiograph" className="relative">
                 <img
                   src={caseData.radiographUrl}
                   alt="Annotated Dental Radiograph"
@@ -969,7 +969,6 @@ const Analysis = () => {
                     <svg className="absolute inset-0 w-full h-full">
                       {caseData.pathologies?.map((pathology, index) => (
                         <g key={index}>
-                          {/* Example annotation - you'll need to adjust based on your actual data */}
                           <circle
                             cx={`${50 + index * 10}%`}
                             cy="50%"
@@ -1009,46 +1008,25 @@ const Analysis = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-lg">
-          <CardHeader className="text-center space-y-6">
-            <div className="w-20 h-20 bg-medical-100 rounded-full flex items-center justify-center mx-auto">
-              <Brain className="w-10 h-10 text-medical-600 animate-pulse" />
-            </div>
-            <div>
-              <CardTitle className="text-2xl mb-2">Loading Case Data</CardTitle>
-              <CardDescription>Please wait while we retrieve your case information...</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-medical-600 rounded-full animate-[progress_2s_ease-in-out_infinite]" style={{ width: `${Math.floor(Math.random() * 30) + 60}%` }} />
-              </div>
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>Connecting to database...</span>
-                <span>Please wait</span>
-              </div>
-            </div>
-            
-            <div className="text-center text-sm text-gray-500 mt-4">
-              <p>This may take a few moments. Thank you for your patience.</p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-card p-8 rounded-lg shadow-xl flex flex-col items-center">
+          <Loader2 className="w-16 h-16 text-primary animate-spin mb-4" />
+          <h3 className="text-xl font-semibold text-foreground mb-2">Analyzing Image</h3>
+          <p className="text-muted-foreground">Please wait while we process your case...</p>
+        </div>
       </div>
     );
   }
 
   if (!caseData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Card>
           <CardContent className="p-6">
             <div className="text-center">
               <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
               <h2 className="text-xl font-semibold mb-2">Case Not Found</h2>
-              <p className="text-gray-600 mb-4">The case you're looking for doesn't exist or you don't have permission to view it.</p>
+              <p className="text-muted-foreground mb-4">The case you're looking for doesn't exist or you don't have permission to view it.</p>
               <Button onClick={() => navigate("/dashboard")}>
                 Return to Dashboard
               </Button>
@@ -1061,77 +1039,72 @@ const Analysis = () => {
 
   if (!isComplete) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white border-b px-6 py-4">
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button>
-            <span className="text-gray-400">|</span>
-            <h1 className="text-xl font-semibold text-gray-900">AI Analysis - Case {caseId}</h1>
-          </div>
-        </header>
+      <div className="min-h-screen bg-background">
+        <PageHeader 
+          title={`AI Analysis - Case ${caseId}`}
+          description="Processing your dental radiograph"
+        />
 
-        <div className="flex items-center justify-center min-h-[80vh] p-4">
-          <Card className="w-full max-w-2xl">
-            <CardHeader className="text-center space-y-6">
-              <div className="w-24 h-24 bg-medical-100 rounded-full flex items-center justify-center mx-auto">
-                <Brain className="w-12 h-12 text-medical-600 animate-pulse" />
-              </div>
-              <div>
-                <CardTitle className="text-2xl mb-2">AI Analysis in Progress</CardTitle>
-                <CardDescription>Our advanced AI is analyzing your dental radiograph</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              <div className="space-y-2">
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-medical-600 rounded-full transition-all duration-500 ease-in-out"
-                    style={{ width: `${((analysisStage + 1) / analysisStages.length) * 100}%` }}
-                  />
+        <div className="container py-6">
+          <div className="flex items-center justify-center min-h-[80vh]">
+            <Card className="w-full max-w-2xl">
+              <CardHeader className="text-center space-y-6">
+                <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                  <Brain className="w-12 h-12 text-primary animate-pulse" />
                 </div>
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>{analysisStages[analysisStage]}</span>
-                  <span>{Math.round(((analysisStage + 1) / analysisStages.length) * 100)}%</span>
+                <div>
+                  <CardTitle className="text-2xl mb-2">AI Analysis in Progress</CardTitle>
+                  <CardDescription>Our advanced AI is analyzing your dental radiograph</CardDescription>
                 </div>
-              </div>
-              
-              <div className="space-y-3">
-                {analysisStages.map((stage, index) => (
-                  <div key={index} className="flex items-center space-x-3">
-                    {index < analysisStage ? (
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                      </div>
-                    ) : index === analysisStage ? (
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-medical-100 flex items-center justify-center">
-                      <RefreshCw className="w-4 h-4 text-medical-600 animate-spin" />
-                      </div>
-                    ) : (
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
-                        <Clock className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
-                    <span className={`text-sm ${
-                      index <= analysisStage ? 'text-gray-900 font-medium' : 'text-gray-400'
-                    }`}>
-                      {stage}
-                    </span>
+              </CardHeader>
+              <CardContent className="space-y-8">
+                <div className="space-y-2">
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary rounded-full transition-all duration-500 ease-in-out"
+                      style={{ width: `${((analysisStage + 1) / analysisStages.length) * 100}%` }}
+                    />
                   </div>
-                ))}
-              </div>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>{analysisStages[analysisStage]}</span>
+                    <span>{Math.round(((analysisStage + 1) / analysisStages.length) * 100)}%</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  {analysisStages.map((stage, index) => (
+                    <div key={index} className="flex items-center space-x-3">
+                      {index < analysisStage ? (
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                        </div>
+                      ) : index === analysisStage ? (
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                        <RefreshCw className="w-4 h-4 text-primary animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span className={`text-sm ${
+                        index <= analysisStage ? 'text-foreground font-medium' : 'text-muted-foreground'
+                      }`}>
+                        {stage}
+                      </span>
+                    </div>
+                  ))}
+                </div>
 
-              <Alert className="bg-blue-50 border-blue-200">
-                <Info className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-800">
-                  Analysis typically takes 30-60 seconds. Please do not refresh the page.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    Analysis typically takes 30-60 seconds. Please do not refresh the page.
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     );
@@ -1139,183 +1112,145 @@ const Analysis = () => {
 
   return (
     <ErrorBoundary>
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Dashboard
-            </Button>
-            <span className="text-gray-400">|</span>
-            <h1 className="text-xl font-semibold text-gray-900">AI Analysis Results - Case {caseId}</h1>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <EditCaseDialog
-              caseData={caseData}
-              onUpdate={(updatedCase) => {
-                setCaseData(updatedCase);
-                toast({
-                  title: "Success",
-                  description: "Case details have been updated successfully.",
-                });
-              }}
-              trigger={
-                <Button variant="outline">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Edit Case
-                </Button>
-              }
-            />
-            <Button 
-              className="bg-medical-600 hover:bg-medical-700"
-              onClick={() => {
-                try {
-                  generatePDFReport(caseData, enhancedAnalysis.data);
+      <div className="min-h-screen bg-background">
+        <PageHeader 
+          title="Case Analysis"
+          description="AI-powered dental radiograph analysis"
+          extra={
+            <div className="flex items-center space-x-2">
+              <EditCaseDialog
+                caseData={caseData}
+                onUpdate={(updatedCase) => {
+                  setCaseData(updatedCase);
                   toast({
                     title: "Success",
-                    description: "Report has been downloaded successfully.",
+                    description: "Case details have been updated successfully.",
                   });
-                } catch (error) {
-                  toast({
-                    title: "Error",
-                    description: "Failed to generate report. Please try again.",
-                    variant: "destructive",
-                  });
+                }}
+                trigger={
+                  <Button variant="outline" disabled={!caseData}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Edit Case
+                  </Button>
                 }
-              }}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download Report
-            </Button>
-          </div>
-        </div>
-      </header>
+              />
+              <Button 
+                onClick={() => {
+                  try {
+                    generatePDFReport(caseData, enhancedAnalysis.data);
+                    toast({
+                      title: "Success",
+                      description: "Report has been downloaded successfully.",
+                    });
+                  } catch (error) {
+                    toast({
+                      title: "Error",
+                      description: "Failed to generate report. Please try again.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
+            </div>
+          }
+        />
 
-      <div className="max-w-7xl mx-auto p-6">
-        {/* Success Alert */}
-        <Alert className="mb-6 bg-green-50 border-green-200">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-800">
-            <strong>Analysis Complete!</strong> AI analysis has been completed successfully.
-          </AlertDescription>
-        </Alert>
+        <div className="container py-6">
+          {/* Success Alert */}
+          <Alert className="mb-6">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Analysis Complete!</strong> AI analysis has been completed successfully.
+            </AlertDescription>
+          </Alert>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Analysis Results */}
-          <div className="lg:col-span-2 space-y-6">
-              {renderAnalysisResults()}
-          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main Analysis Results */}
+            <div className="lg:col-span-2 space-y-6">
+                {renderAnalysisResults()}
+            </div>
 
-          {/* Patient Information */}
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <User className="w-5 h-5 mr-2" />
-                  Patient Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Name</h4>
-                    <p className="text-gray-900">{caseData.patientName}</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Age</h4>
-                    <p className="text-gray-900">{caseData.patientAge} years</p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Gender</h4>
-                    <p className="text-gray-900">{caseData.patientGender}</p>
-                  </div>
-                  <Separator />
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Contact Information</h4>
-                    <div className="space-y-2 mt-2">
-                      <p className="text-gray-900">{caseData.patientContact?.phone}</p>
-                      <p className="text-gray-900">{caseData.patientContact?.email}</p>
-                      <p className="text-gray-900">{caseData.patientContact?.address}</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Stethoscope className="w-5 h-5 mr-2" />
-                  Medical History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-3 bg-gray-50 rounded">
-                      <div className="font-medium">Smoking</div>
-                      <div className={caseData.medicalHistory?.smoking ? "text-red-600" : "text-green-600"}>
-                        {caseData.medicalHistory?.smoking ? "Yes" : "No"}
-                      </div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-50 rounded">
-                      <div className="font-medium">Alcohol</div>
-                      <div className={caseData.medicalHistory?.alcohol ? "text-red-600" : "text-green-600"}>
-                        {caseData.medicalHistory?.alcohol ? "Yes" : "No"}
-                      </div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-50 rounded">
-                      <div className="font-medium">Diabetes</div>
-                      <div className={caseData.medicalHistory?.diabetes ? "text-red-600" : "text-green-600"}>
-                        {caseData.medicalHistory?.diabetes ? "Yes" : "No"}
-                      </div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-50 rounded">
-                      <div className="font-medium">Hypertension</div>
-                      <div className={caseData.medicalHistory?.hypertension ? "text-red-600" : "text-green-600"}>
-                        {caseData.medicalHistory?.hypertension ? "Yes" : "No"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {caseData.medicalHistory?.notes && (
+            {/* Patient Information */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <User className="w-5 h-5 mr-2" />
+                    Patient Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
                     <div>
-                      <h4 className="text-sm font-medium text-gray-500 mb-2">Additional Notes</h4>
-                      <p className="text-gray-900">{caseData.medicalHistory.notes}</p>
+                      <h4 className="text-sm font-medium text-muted-foreground">Name</h4>
+                      <p className="text-foreground">{caseData.patientName}</p>
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Camera className="w-5 h-5 mr-2" />
-                  Radiograph
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {caseData.radiographUrl ? (
-                  <img
-                    src={caseData.radiographUrl}
-                    alt="Dental Radiograph"
-                    className="w-full rounded-lg"
-                  />
-                ) : (
-                  <div className="text-center p-6 bg-gray-50 rounded-lg">
-                    <p className="text-gray-500">No radiograph available</p>
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground">Age</h4>
+                      <p className="text-foreground">{caseData.patientAge} years</p>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground">Gender</h4>
+                      <p className="text-foreground">{caseData.patientGender}</p>
+                    </div>
+                    <Separator />
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground">Contact Information</h4>
+                      <div className="space-y-2 mt-2">
+                        <p className="text-foreground">{caseData.patientContact?.phone}</p>
+                        <p className="text-foreground">{caseData.patientContact?.email}</p>
+                        <p className="text-foreground">{caseData.patientContact?.address}</p>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Stethoscope className="w-5 h-5 mr-2" />
+                    Medical History
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center p-3 bg-muted rounded">
+                        <div className="font-medium">Smoking</div>
+                        <div className={caseData.medicalHistory?.smoking ? "text-red-600" : "text-green-600"}>
+                          {caseData.medicalHistory?.smoking ? "Yes" : "No"}
+                        </div>
+                      </div>
+                      <div className="text-center p-3 bg-muted rounded">
+                        <div className="font-medium">Alcohol</div>
+                        <div className={caseData.medicalHistory?.alcohol ? "text-red-600" : "text-green-600"}>
+                          {caseData.medicalHistory?.alcohol ? "Yes" : "No"}
+                        </div>
+                      </div>
+                      <div className="text-center p-3 bg-muted rounded">
+                        <div className="font-medium">Diabetes</div>
+                        <div className={caseData.medicalHistory?.diabetes ? "text-red-600" : "text-green-600"}>
+                          {caseData.medicalHistory?.diabetes ? "Yes" : "No"}
+                        </div>
+                      </div>
+                      <div className="text-center p-3 bg-muted rounded">
+                        <div className="font-medium">Hypertension</div>
+                        <div className={caseData.medicalHistory?.hypertension ? "text-red-600" : "text-green-600"}>
+                          {caseData.medicalHistory?.hypertension ? "Yes" : "No"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </ErrorBoundary>
   );
 };
