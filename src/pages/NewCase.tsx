@@ -17,14 +17,14 @@ import { PageHeader } from "@/components/layout/PageHeader";
 
 const steps: Step[] = [
   {
-    title: "Upload Radiograph",
-    description: "Upload your dental X-ray image",
-    icon: Upload
-  },
-  {
     title: "Patient Information",
     description: "Enter patient details and medical history",
     icon: User
+  },
+  {
+    title: "Upload Radiograph",
+    description: "Upload your dental X-ray image",
+    icon: Upload
   },
   {
     title: "Review & Submit",
