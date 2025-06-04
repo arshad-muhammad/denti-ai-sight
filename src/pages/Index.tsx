@@ -76,28 +76,28 @@ const Index = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-medical-50 to-blue-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-medical-600 rounded-lg flex items-center justify-center">
-              <Brain className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+              <Brain className="w-6 h-6 text-primary-foreground" />
             </div>
-            <span className="text-xl font-bold text-gray-900">DentalAI</span>
+            <span className="text-2xl font-bold text-foreground">PerioVision</span>
           </div>
           <nav className="hidden md:flex items-center space-x-6">
-            <a href="#features" className="text-gray-600 hover:text-medical-600 transition-colors">Features</a>
-            <a href="#how-it-works" className="text-gray-600 hover:text-medical-600 transition-colors">How It Works</a>
-            <a href="#testimonials" className="text-gray-600 hover:text-medical-600 transition-colors">Reviews</a>
+            <a href="#features" className="text-muted-foreground hover:text-primary transition-colors">Features</a>
+            <a href="#how-it-works" className="text-muted-foreground hover:text-primary transition-colors">How It Works</a>
+            <a href="#testimonials" className="text-muted-foreground hover:text-primary transition-colors">Reviews</a>
             {user ? (
-              <Button className="bg-medical-600 hover:bg-medical-700" onClick={() => navigate("/dashboard")}>
+              <Button onClick={() => navigate("/dashboard")}>
                 Go to Dashboard
               </Button>
             ) : (
               <>
                 <Button variant="outline" onClick={handleAction}>Login</Button>
-                <Button className="bg-medical-600 hover:bg-medical-700" onClick={handleAction}>Get Started</Button>
+                <Button onClick={handleAction}>Get Started</Button>
               </>
             )}
           </nav>
@@ -110,21 +110,17 @@ const Index = () => {
           <Badge variant="secondary" className="mb-6">
             Trusted by 500+ Dental Professionals
           </Badge>
-          <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6 animate-fade-in">
-            AI-Powered Dental
-            <span className="text-medical-600 block">Radiograph Diagnosis</span>
-            <span className="text-gray-600 text-2xl md:text-3xl font-normal block mt-2">
-              in Seconds
-            </span>
+          <h1 className="mt-8 text-4xl font-bold tracking-tight text-foreground sm:text-6xl">
+            AI-Powered Periodontal Analysis
           </h1>
-          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Revolutionary AI technology that analyzes dental X-rays to detect bone loss, 
-            pathologies, and provides accurate prognosis with professional treatment recommendations.
+          <p className="mt-6 text-lg leading-8 text-muted-foreground">
+            Transform your periodontal practice with advanced AI technology.
+            Get accurate, fast, and reliable periodontal analysis to enhance your diagnostic capabilities.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
             <Button 
               size="lg" 
-              className="bg-medical-600 hover:bg-medical-700 text-lg px-8 py-3"
+              className="text-lg px-8 py-3"
               onClick={handleAction}
             >
               {user ? 'Go to Dashboard' : 'Try Free Analysis'}
@@ -142,12 +138,12 @@ const Index = () => {
           
           {/* Hero Image Placeholder */}
           <div className="mt-16 relative">
-            <div className="bg-white rounded-xl shadow-2xl p-8 max-w-4xl mx-auto">
-              <div className="aspect-video bg-gradient-to-br from-medical-100 to-blue-100 rounded-lg flex items-center justify-center">
+            <div className="bg-card rounded-xl shadow-2xl p-8 max-w-4xl mx-auto">
+              <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                 <div className="text-center">
-                  <Brain className="w-16 h-16 text-medical-600 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-800">AI Analysis Interface</h3>
-                  <p className="text-gray-600">Upload • Analyze • Diagnose</p>
+                  <Brain className="w-16 h-16 text-primary mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-foreground">AI Analysis Interface</h3>
+                  <p className="text-muted-foreground">Upload • Analyze • Diagnose</p>
                 </div>
               </div>
             </div>
@@ -156,23 +152,23 @@ const Index = () => {
       </section>
 
       {/* Features Section */}
-      <section id="features" className="py-20 px-4 bg-white">
+      <section id="features" className="py-20 px-4 bg-card">
         <div className="container mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               Advanced AI Diagnostic Features
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               Comprehensive analysis tools designed for modern dental practice
             </p>
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             {features.map((feature, index) => (
-              <Card key={index} className="border-0 shadow-lg hover:shadow-xl transition-shadow">
+              <Card key={index} className="border-border shadow-lg hover:shadow-xl transition-shadow">
                 <CardHeader className="text-center">
-                  <div className="w-12 h-12 bg-medical-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                    <feature.icon className="w-6 h-6 text-medical-600" />
+                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mx-auto mb-4">
+                    <feature.icon className="w-6 h-6 text-primary" />
                   </div>
                   <CardTitle className="text-lg">{feature.title}</CardTitle>
                 </CardHeader>
@@ -188,13 +184,13 @@ const Index = () => {
       </section>
 
       {/* How It Works */}
-      <section id="how-it-works" className="py-20 px-4 bg-gradient-to-br from-medical-50 to-blue-50">
+      <section id="how-it-works" className="py-20 px-4 bg-background">
         <div className="container mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               How It Works
             </h2>
-            <p className="text-xl text-gray-600">
+            <p className="text-xl text-muted-foreground">
               Three simple steps to professional AI diagnosis
             </p>
           </div>
@@ -208,15 +204,15 @@ const Index = () => {
                 }`}
                 onMouseEnter={() => setActiveStep(step.number)}
               >
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-xl font-bold transition-colors ${
-                  activeStep === step.number ? 'bg-medical-600' : 'bg-gray-400'
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6 text-primary-foreground text-xl font-bold transition-colors ${
+                  activeStep === step.number ? 'bg-primary' : 'bg-muted'
                 }`}>
                   {step.number}
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                <h3 className="text-xl font-semibold text-foreground mb-3">
                   {step.title}
                 </h3>
-                <p className="text-gray-600">
+                <p className="text-muted-foreground">
                   {step.description}
                 </p>
               </div>
@@ -226,24 +222,24 @@ const Index = () => {
       </section>
 
       {/* Testimonials */}
-      <section id="testimonials" className="py-20 px-4 bg-white">
+      <section id="testimonials" className="py-20 px-4 bg-card">
         <div className="container mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               Trusted by Dental Professionals
             </h2>
-            <p className="text-xl text-gray-600">
-              See what dentists are saying about DentalAI
+            <p className="text-xl text-muted-foreground">
+              See what dentists are saying about PerioVision
             </p>
           </div>
           
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {testimonials.map((testimonial, index) => (
-              <Card key={index} className="border-0 shadow-lg">
+              <Card key={index} className="border-border shadow-lg">
                 <CardHeader>
                   <div className="flex items-center space-x-1 mb-2">
                     {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                      <Star key={i} className="w-4 h-4 fill-primary text-primary" />
                     ))}
                   </div>
                   <CardDescription className="text-base italic">
@@ -252,8 +248,8 @@ const Index = () => {
                 </CardHeader>
                 <CardContent>
                   <div>
-                    <div className="font-semibold text-gray-900">{testimonial.name}</div>
-                    <div className="text-sm text-gray-600">{testimonial.role}</div>
+                    <div className="font-semibold text-foreground">{testimonial.name}</div>
+                    <div className="text-sm text-muted-foreground">{testimonial.role}</div>
                   </div>
                 </CardContent>
               </Card>
@@ -263,12 +259,12 @@ const Index = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 px-4 bg-medical-600">
+      <section className="py-20 px-4 bg-primary">
         <div className="container mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold text-primary-foreground mb-4">
             {user ? 'Ready to Analyze?' : 'Ready to Transform Your Practice?'}
           </h2>
-          <p className="text-xl text-medical-100 mb-8 max-w-2xl mx-auto">
+          <p className="text-xl text-primary-foreground/80 mb-8 max-w-2xl mx-auto">
             {user 
               ? 'Start analyzing your dental radiographs with AI technology.'
               : 'Join hundreds of dental professionals using AI to improve patient care and diagnosis accuracy.'
@@ -288,7 +284,7 @@ const Index = () => {
               <Button 
                 variant="outline" 
                 size="lg" 
-                className="text-lg px-8 py-3 border-white text-white hover:bg-white hover:text-medical-600"
+                className="text-lg px-8 py-3 border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary"
                 onClick={handleAction}
               >
                 Schedule Demo
@@ -297,56 +293,6 @@ const Index = () => {
           </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12 px-4">
-        <div className="container mx-auto">
-          <div className="grid md:grid-cols-4 gap-8">
-            <div>
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="w-8 h-8 bg-medical-600 rounded-lg flex items-center justify-center">
-                  <Brain className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold">DentalAI</span>
-              </div>
-              <p className="text-gray-400">
-                Professional AI-powered dental diagnosis for the modern practice.
-              </p>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Product</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white">Features</a></li>
-                <li><a href="#" className="hover:text-white">Pricing</a></li>
-                <li><a href="#" className="hover:text-white">API</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Support</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white">Help Center</a></li>
-                <li><a href="#" className="hover:text-white">Contact Us</a></li>
-                <li><a href="#" className="hover:text-white">Training</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-semibold mb-4">Legal</h4>
-              <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-white">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-white">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-white">HIPAA Compliance</a></li>
-              </ul>
-            </div>
-          </div>
-          
-          <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; 2024 DentalAI. All rights reserved. Medical AI diagnosis platform.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };

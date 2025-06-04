@@ -18,7 +18,11 @@ import {
   Activity,
   Users,
   TrendingUp,
-  LogOut
+  LogOut,
+  Settings,
+  ChevronUp,
+  ChevronDown,
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
   Table,
@@ -44,14 +49,130 @@ import { useAuth } from "@/lib/AuthContext";
 import { dentalCaseService } from "@/lib/services/dentalCase";
 import { FirebaseDentalCase } from "@/types/firebase";
 import { useToast } from "@/components/ui/use-toast";
+import { EditCaseDialog } from "@/components/EditCaseDialog";
+import { generatePDFReport } from "@/services/reportService";
+import { getEnhancedAnalysis } from '@/services/geminiService';
+import { LogoutConfirmDialog } from "@/components/LogoutConfirmDialog";
+import type { GeminiAnalysisInput } from '@/services/geminiService';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [cases, setCases] = useState<FirebaseDentalCase[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, logout } = useAuth();
   const { toast } = useToast();
+
+  // Add new state for AI insights
+  const [aiStats, setAiStats] = useState({
+    accuracyRate: 0,
+    averageProcessingTime: 0,
+    totalFindings: 0,
+    recentTrends: []
+  });
+
+  const [healthTips, setHealthTips] = useState({
+    tips: [],
+    loading: true,
+    error: null
+  });
+
+  // Fetch health tips using Gemini API
+  useEffect(() => {
+    const fetchHealthTips = async () => {
+      try {
+        setHealthTips(prev => ({ ...prev, loading: true }));
+        
+        // Structured prompt for dental health tips
+        const prompt: GeminiAnalysisInput = {
+          diagnosis: "Dental Health Education and Prevention",
+          findings: {
+            boneLoss: {
+              percentage: 0,
+              severity: "none",
+              regions: ["general"]
+            },
+            pathologies: [{
+              type: "preventive care",
+              location: "general",
+              severity: "none",
+              confidence: 1.0
+            }]
+          },
+          patientData: {
+            age: 30,
+            gender: "not specified",
+            medicalHistory: {
+              smoking: false,
+              alcohol: false,
+              diabetes: false,
+              hypertension: false,
+              notes: "General dental health guidelines for all patients"
+            }
+          }
+        };
+
+        const response = await getEnhancedAnalysis(prompt);
+
+        // Extract tips from the response
+        const tipsList = [
+          ...response.detailedTreatmentPlan.preventiveMeasures,
+          ...response.detailedTreatmentPlan.lifestyle
+        ].filter(tip => tip.length > 0)
+         .slice(0, 5);
+
+        if (tipsList.length === 0) {
+          throw new Error('No tips received from API');
+        }
+
+        setHealthTips({
+          tips: tipsList,
+          loading: false,
+          error: null
+        });
+      } catch (error) {
+        console.error("Error fetching health tips:", error);
+        
+        // Fallback tips focused on periodontal health
+        setHealthTips({
+          tips: [
+            "Brush teeth for at least two minutes, twice daily with fluoride toothpaste",
+            "Use soft-bristled toothbrush and gentle circular motions for gum health",
+            "Clean between teeth daily with floss or interdental brushes",
+            "Regular dental check-ups every 6 months for preventive care",
+            "Maintain a balanced diet and stay hydrated for optimal oral health"
+          ],
+          loading: false,
+          error: "Using preset tips while AI service refreshes"
+        });
+
+        // Show toast notification
+        toast({
+          title: "Tips Update",
+          description: "Using preset dental health tips. New AI-generated tips will be available soon.",
+          duration: 5000
+        });
+      }
+    };
+
+    fetchHealthTips();
+  }, [toast]); // Add toast to dependencies
+
+  // Add state for current tip index
+  const [currentTipIndex, setCurrentTipIndex] = useState(0);
+
+  // Auto-rotate tips every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTipIndex(prev => 
+        prev === (healthTips.tips.length - 1) ? 0 : prev + 1
+      );
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [healthTips.tips.length]);
 
   useEffect(() => {
     const loadCases = async () => {
@@ -73,7 +194,62 @@ const Dashboard = () => {
     };
 
     loadCases();
-  }, [user]);
+  }, [user, toast]);
+
+  // Calculate AI statistics
+  useEffect(() => {
+    if (cases.length > 0) {
+      // Calculate accuracy rate (based on completed cases)
+      const completedCases = cases.filter(c => c.status === 'completed');
+      const accuracyRate = completedCases.length > 0 
+        ? completedCases.reduce((acc, curr) => {
+            const confidence = curr.analysisResults?.confidence || 0;
+            return acc + confidence;
+          }, 0) / completedCases.length
+        : 0;
+
+      // Calculate average processing time (if timestamps available)
+      const processingTimes = completedCases
+        .filter(c => c.createdAt)
+        .map(c => {
+          const start = c.createdAt.toDate();
+          const end = new Date(); // Use current time as completion time
+          return (end.getTime() - start.getTime()) / 1000; // in seconds
+        });
+
+      const avgProcessingTime = processingTimes.length > 0
+        ? processingTimes.reduce((acc, curr) => acc + curr, 0) / processingTimes.length
+        : 0;
+
+      // Calculate total findings
+      const totalFindings = completedCases.reduce((acc, curr) => {
+        return acc + (curr.pathologies?.length || 0);
+      }, 0);
+
+      // Calculate recent trends (last 7 days)
+      const last7Days = new Date();
+      last7Days.setDate(last7Days.getDate() - 7);
+      
+      const recentCases = cases.filter(c => 
+        c.createdAt?.toDate() >= last7Days
+      );
+
+      const dailyCounts = new Array(7).fill(0);
+      recentCases.forEach(c => {
+        const dayIndex = 6 - Math.floor((new Date().getTime() - c.createdAt.toDate().getTime()) / (1000 * 60 * 60 * 24));
+        if (dayIndex >= 0 && dayIndex < 7) {
+          dailyCounts[dayIndex]++;
+        }
+      });
+
+      setAiStats({
+        accuracyRate,
+        averageProcessingTime: avgProcessingTime,
+        totalFindings,
+        recentTrends: dailyCounts
+      });
+    }
+  }, [cases]);
 
   const stats = [
     {
@@ -81,7 +257,7 @@ const Dashboard = () => {
       value: cases.length.toString(),
       change: "+12%",
       icon: FileText,
-      color: "bg-blue-500"
+      variant: "primary"
     },
     {
       title: "This Month",
@@ -94,47 +270,47 @@ const Dashboard = () => {
       }).length.toString(),
       change: "+4",
       icon: Calendar,
-      color: "bg-green-500"
+      variant: "success"
     },
     {
       title: "Accuracy Rate",
       value: "94%",
       change: "+2%",
       icon: TrendingUp,
-      color: "bg-purple-500"
+      variant: "info"
     },
     {
       title: "Active Patients",
       value: new Set(cases.map(c => c.patientName)).size.toString(),
       change: "+3",
       icon: Users,
-      color: "bg-orange-500"
+      variant: "warning"
     }
   ];
 
-  const getStatusColor = (status: string) => {
+  const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case "completed":
-        return "bg-green-100 text-green-800";
+        return "success";
       case "analyzing":
-        return "bg-yellow-100 text-yellow-800";
+        return "warning";
       case "error":
-        return "bg-red-100 text-red-800";
+        return "destructive";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "secondary";
     }
   };
 
-  const getSeverityColor = (severity: string | undefined) => {
+  const getSeverityBadgeVariant = (severity: string | undefined) => {
     switch (severity) {
       case "mild":
-        return "bg-green-100 text-green-800";
+        return "success";
       case "moderate":
-        return "bg-yellow-100 text-yellow-800";
+        return "warning";
       case "severe":
-        return "bg-red-100 text-red-800";
+        return "destructive";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "secondary";
     }
   };
 
@@ -174,31 +350,66 @@ const Dashboard = () => {
     }
   };
 
-  const filteredCases = cases.filter(c => 
-    c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDownloadReport = async (caseData: FirebaseDentalCase) => {
+    try {
+      // Get enhanced analysis first
+      const enhancedAnalysis = await getEnhancedAnalysis({
+        diagnosis: caseData.diagnosis || '',
+        findings: caseData.analysisResults?.findings || {},
+        patientData: {
+          age: caseData.patientAge,
+          gender: caseData.patientGender,
+          medicalHistory: caseData.medicalHistory
+        }
+      });
+
+      // Generate and download the report
+      generatePDFReport(caseData, enhancedAnalysis);
+      
+      toast({
+        title: "Success",
+        description: "Report has been downloaded successfully.",
+      });
+    } catch (error) {
+      console.error('Error generating report:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate report. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const filteredCases = cases.filter(c => {
+    const matchesSearch = 
+      c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.id.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = filterStatus === "all" || c.status === filterStatus;
+    const matchesSeverity = filterSeverity === "all" || c.severity === filterSeverity;
+    
+    return matchesSearch && matchesStatus && matchesSeverity;
+  });
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="bg-background">
       {/* Header */}
-      <header className="bg-white border-b px-6 py-4">
+      <header className="bg-card border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-medical-600 rounded-lg flex items-center justify-center">
-                <Brain className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                <Brain className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="text-xl font-bold text-gray-900">DentalAI</span>
+              <span className="text-xl font-bold text-foreground">PerioVision</span>
             </div>
-            <span className="text-gray-400">|</span>
-            <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
+            <span className="text-muted-foreground">|</span>
+            <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
           </div>
           
           <div className="flex items-center space-x-4">
             <Button
               onClick={handleNewCase}
-              className="bg-medical-600 hover:bg-medical-700"
             >
               <Plus className="w-4 h-4 mr-2" />
               New Case
@@ -213,20 +424,23 @@ const Dashboard = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem>Profile</DropdownMenuItem>
-                <DropdownMenuItem>Settings</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout}>
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
+                <DropdownMenuItem onClick={() => navigate("/profile")}>
+                  <User className="w-4 h-4 mr-2" />
+                  Profile
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/settings")}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <LogoutConfirmDialog onConfirm={handleLogout} />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto p-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => (
@@ -234,12 +448,12 @@ const Dashboard = () => {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                    <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
+                    <p className="text-2xl font-bold text-foreground">{stat.value}</p>
                     <p className="text-sm text-green-600">{stat.change} from last month</p>
                   </div>
-                  <div className={`w-12 h-12 rounded-lg ${stat.color} flex items-center justify-center`}>
-                    <stat.icon className="w-6 h-6 text-white" />
+                  <div className={`w-12 h-12 rounded-lg bg-${stat.variant} flex items-center justify-center`}>
+                    <stat.icon className="w-6 h-6 text-primary-foreground" />
                   </div>
                 </div>
               </CardContent>
@@ -265,9 +479,43 @@ const Dashboard = () => {
                     className="pl-10 w-64"
                   />
                 </div>
-                <Button variant="outline" size="icon">
-                  <Filter className="w-4 h-4" />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline">
+                      <Filter className="w-4 h-4 mr-2" />
+                      Filters
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Status</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => setFilterStatus("all")}>
+                      All
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterStatus("pending")}>
+                      Pending
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterStatus("analyzing")}>
+                      Analyzing
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterStatus("completed")}>
+                      Completed
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Severity</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => setFilterSeverity("all")}>
+                      All
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterSeverity("mild")}>
+                      Mild
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterSeverity("moderate")}>
+                      Moderate
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterSeverity("severe")}>
+                      Severe
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           </CardHeader>
@@ -311,14 +559,14 @@ const Dashboard = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getStatusColor(case_.status)}>
+                          <Badge className={getStatusBadgeVariant(case_.status)}>
                             {case_.status.charAt(0).toUpperCase() + case_.status.slice(1)}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           {case_.analysisResults ? (
                             <div className="space-y-1">
-                              <Badge className={getSeverityColor(case_.severity)}>
+                              <Badge className={getSeverityBadgeVariant(case_.severity)}>
                                 {case_.severity || 'N/A'}
                               </Badge>
                               <p className="text-sm text-gray-500">
@@ -341,11 +589,35 @@ const Dashboard = () => {
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Analysis
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => navigate(`/edit/${case_.id}`)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Edit Case
+                              <DropdownMenuItem asChild>
+                                <EditCaseDialog
+                                  caseData={case_}
+                                  onUpdate={(updatedCase) => {
+                                    setCases(cases.map(c => 
+                                      c.id === updatedCase.id ? updatedCase : c
+                                    ));
+                                    toast({
+                                      title: "Success",
+                                      description: "Case details have been updated successfully.",
+                                    });
+                                  }}
+                                  trigger={
+                                    <div 
+                                      className="flex items-center px-2 py-1.5 text-sm cursor-pointer"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                      }}
+                                    >
+                                      <Edit className="mr-2 h-4 w-4" />
+                                      Edit Case
+                                    </div>
+                                  }
+                                />
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDownloadReport(case_)}
+                                disabled={!case_.analysisResults}
+                              >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download Report
                               </DropdownMenuItem>
@@ -374,6 +646,241 @@ const Dashboard = () => {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Interactive Elements Section */}
+      <div className="container mx-auto px-6 py-12 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Quick Tips Card */}
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <Activity className="w-4 h-4 text-green-600" />
+                  </div>
+                  <CardTitle className="text-lg">Today's Tip</CardTitle>
+                </div>
+                <Badge variant="outline" className="font-mono">
+                  {currentTipIndex + 1}/{healthTips.tips.length}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {healthTips.loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : healthTips.error ? (
+                  <div className="text-center text-gray-500">
+                    <AlertCircle className="w-8 h-8 mx-auto mb-2" />
+                    <p>Couldn't load tips. Using backup tips.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="min-h-[100px] flex items-center">
+                      <div className="space-y-4 animate-fadeIn">
+                        <div className="flex items-start space-x-3">
+                          <CheckCircle className="w-5 h-5 text-green-600 mt-1 flex-shrink-0" />
+                          <p className="text-gray-700">
+                            {healthTips.tips[currentTipIndex]}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setCurrentTipIndex(prev => 
+                          prev === 0 ? healthTips.tips.length - 1 : prev - 1
+                        )}
+                      >
+                        Previous
+                      </Button>
+                      <div className="flex gap-1">
+                        {healthTips.tips.map((_, index) => (
+                          <div
+                            key={index}
+                            className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                              index === currentTipIndex ? 'bg-green-600' : 'bg-gray-200'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setCurrentTipIndex(prev => 
+                          prev === healthTips.tips.length - 1 ? 0 : prev + 1
+                        )}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* AI Insights Card */}
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                    <Brain className="w-4 h-4 text-primary" />
+                  </div>
+                  <CardTitle className="text-lg">AI Insights</CardTitle>
+                </div>
+                <Badge variant="secondary" className="font-mono">
+                  v2.0
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {/* Accuracy Rate */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Analysis Accuracy</span>
+                    <Badge 
+                      variant={aiStats.accuracyRate >= 90 ? "success" : "warning"}
+                      className="font-mono"
+                    >
+                      {aiStats.accuracyRate.toFixed(1)}%
+                    </Badge>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        aiStats.accuracyRate >= 90 ? 'bg-primary' : 'bg-warning'
+                      }`}
+                      style={{ width: `${aiStats.accuracyRate}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Processing Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-gray-900">
+                      {Math.round(aiStats.averageProcessingTime)}s
+                    </div>
+                    <div className="text-sm text-gray-600">Avg. Processing</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-gray-900">
+                      {aiStats.totalFindings}
+                    </div>
+                    <div className="text-sm text-gray-600">Total Findings</div>
+                  </div>
+                </div>
+
+                {/* Weekly Trend */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Weekly Activity</span>
+                    <div className="flex items-center space-x-1">
+                      {aiStats.recentTrends[6] > aiStats.recentTrends[5] ? (
+                        <ChevronUp className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-red-600" />
+                      )}
+                      <span className="text-sm font-medium">
+                        {Math.abs(aiStats.recentTrends[6] - aiStats.recentTrends[5])} cases
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-end justify-between h-12 gap-1">
+                    {aiStats.recentTrends.map((count, index) => {
+                      const maxCount = Math.max(...aiStats.recentTrends);
+                      const height = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                      const day = new Date();
+                      day.setDate(day.getDate() - (6 - index));
+                      
+                      return (
+                        <div key={index} className="flex-1 flex flex-col items-center">
+                          <div 
+                            className={`w-full ${
+                              index === 6 ? 'bg-blue-600' : 'bg-blue-200'
+                            } rounded-sm`}
+                            style={{ height: `${height}%` }}
+                          />
+                          <span className="text-xs text-gray-500 mt-1">
+                            {day.toLocaleDateString(undefined, { weekday: 'short' }).charAt(0)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* AI Health Status */}
+                <div className="flex items-center space-x-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${
+                    aiStats.accuracyRate >= 90 ? 'bg-green-600' : 'bg-yellow-600'
+                  }`} />
+                  <span className="text-gray-600">
+                    {aiStats.accuracyRate >= 90 
+                      ? 'AI system performing optimally'
+                      : 'AI system needs attention'
+                    }
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions Card */}
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                  <Activity className="w-4 h-4 text-purple-600" />
+                </div>
+                <CardTitle className="text-lg">Quick Actions</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={() => navigate('/new-case')}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Analysis
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => navigate('/profile')}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  Update Profile
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => navigate('/settings')}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Preferences
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                >
+                  <Brain className="w-4 h-4 mr-2" />
+                  AI Training Guide
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

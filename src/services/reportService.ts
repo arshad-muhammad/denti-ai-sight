@@ -3,6 +3,7 @@ import { jsPDF } from "jspdf";
 import { UserOptions } from 'jspdf-autotable';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
+import html2canvas from 'html2canvas';
 
 interface EnhancedAnalysis {
   refinedPrognosis: {
@@ -383,44 +384,49 @@ export const generatePDFReport = async (
     });
   }
 
-  // Add Annotated Radiograph section
+  // Annotated Radiograph section
   if (caseData.radiographUrl) {
-    // Add new page for the radiograph
-    doc.addPage();
-    yPos = 20;
-
-    // Add section header
-    doc.setFontSize(14);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Annotated Radiograph", margin, yPos);
-    yPos += 10;
-
     try {
-      // Load and add the radiograph image
-      const imageData = await loadImage(caseData.radiographUrl);
-      
-      // Calculate image dimensions to fit the page while maintaining aspect ratio
+      // Add new page for the radiograph
+      doc.addPage();
+      yPos = 20;
+
+      // Add section header
+      doc.setFontSize(14);
+      doc.setTextColor(0, 83, 155);
+      doc.text("Annotated Radiograph", margin, yPos);
+      yPos += 10;
+
+      // Add description
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text("AI annotations highlighting detected pathologies", margin, yPos);
+      yPos += 15;
+
+      // Get the annotated radiograph element
+      const annotatedRadiograph = document.getElementById('annotated-radiograph');
+      if (!annotatedRadiograph) {
+        throw new Error('Could not find annotated radiograph element');
+      }
+
+      // Capture the element with annotations using html2canvas
+      const canvas = await html2canvas(annotatedRadiograph, {
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null
+      });
+
+      // Convert canvas to image data
+      const imageData = canvas.toDataURL('image/jpeg', 1.0);
+
+      // Calculate dimensions to fit the page while maintaining aspect ratio
       const maxWidth = pageWidth - (2 * margin);
-      const maxHeight = doc.internal.pageSize.getHeight() - yPos - margin;
-      
-      // Create a temporary image to get dimensions
-      const img = new Image();
-      await new Promise((resolve) => {
-        img.onload = resolve;
-        img.src = imageData;
-      });
-      
-      let imgWidth = img.width;
-      let imgHeight = img.height;
-      
-      // Log original image dimensions
-      console.log('Original Image Dimensions:', {
-        width: imgWidth,
-        height: imgHeight,
-        maxWidth,
-        maxHeight
-      });
-      
+      const maxHeight = doc.internal.pageSize.getHeight() - yPos - (margin * 2); // Leave space for legend
+
+      let imgWidth = canvas.width;
+      let imgHeight = canvas.height;
+
       // Scale image to fit page
       if (imgWidth > maxWidth) {
         const ratio = maxWidth / imgWidth;
@@ -436,31 +442,10 @@ export const generatePDFReport = async (
       // Calculate x position to center the image
       const xPos = margin + (maxWidth - imgWidth) / 2;
 
-      // Log scaled dimensions
-      console.log('Scaled Image Dimensions:', {
-        width: imgWidth,
-        height: imgHeight,
-        xPos,
-        yPos
-      });
-
-      // Add the image to the PDF
+      // Add the captured image to the PDF
       doc.addImage(imageData, 'JPEG', xPos, yPos, imgWidth, imgHeight);
 
-      // Add annotations if pathologies exist
-      if (caseData.pathologies && caseData.pathologies.length > 0) {
-        drawAnnotations(
-          doc, 
-          caseData.pathologies, 
-          xPos, 
-          yPos, 
-          imgWidth, 
-          imgHeight,
-          caseData.analysisResults?.annotations
-        );
-      }
-
-      yPos += imgHeight + 10;
+      yPos += imgHeight + 15;
 
       // Add legend
       doc.setFontSize(10);
@@ -484,8 +469,9 @@ export const generatePDFReport = async (
 
       yPos += 15;
 
-      // Add pathology annotations if available
+      // Add pathology list
       if (caseData.pathologies && caseData.pathologies.length > 0) {
+        yPos += 10;
         doc.setFontSize(12);
         doc.setTextColor(0, 83, 155);
         doc.text("Detected Pathologies:", margin, yPos);
@@ -498,38 +484,15 @@ export const generatePDFReport = async (
         ]);
 
         autoTable(doc, {
-          ...tableOptions,
           startY: yPos,
           head: [["Pathology", "Location", "Severity"]],
           body: pathologyInfo,
+          theme: 'plain',
+          styles: { fontSize: 10 },
           columnStyles: {
             0: { cellWidth: 60 },
             1: { cellWidth: 60 },
             2: { cellWidth: 40 }
-          }
-        });
-      }
-
-      // Add bone loss measurements if available
-      if (caseData.boneLoss) {
-        yPos = doc.lastAutoTable.finalY + 10;
-        doc.setFontSize(12);
-        doc.setTextColor(0, 83, 155);
-        doc.text("Bone Loss Measurements:", margin, yPos);
-        yPos += 10;
-
-        const boneLossInfo = [
-          ["Overall Bone Loss:", `${caseData.boneLoss}%`],
-          ["Severity:", caseData.severity || 'N/A']
-        ];
-
-        autoTable(doc, {
-          ...tableOptions,
-          startY: yPos,
-          body: boneLossInfo,
-          columnStyles: {
-            0: { fontStyle: 'bold', cellWidth: 60 },
-            1: { cellWidth: 40 }
           }
         });
       }
