@@ -1,4 +1,7 @@
 import { LucideIcon } from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
+import { AnalysisResult } from './analysis';
+import { PatientContact, MedicalHistory, ClinicalFindings, Pathology } from './firebase';
 
 export interface PatientData {
   fullName: string;
@@ -25,10 +28,9 @@ export interface ClinicalData {
 }
 
 export interface Step {
-  number: number;
   title: string;
-  icon: LucideIcon;
   description: string;
+  icon: LucideIcon;
 }
 
 export interface Finding {
@@ -46,24 +48,27 @@ export interface Finding {
   severity?: 'low' | 'medium' | 'high';
 }
 
-export interface AnalysisResults {
-  findings: Finding[];
-  confidence: number;
-  recommendations: string[];
-  imageQuality?: {
-    score: number;
-    issues?: string[];
-  };
-}
-
 export interface DentalCase {
   id: string;
   userId: string;
-  patientData: PatientData;
-  clinicalData: ClinicalData;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
-  createdAt: string;
-  updatedAt?: string;
+  patientName: string;
+  patientAge: number;
+  patientGender: string;
+  patientContact: PatientContact;
+  medicalHistory: MedicalHistory;
+  clinicalFindings: ClinicalFindings;
+  symptoms: string[];
   radiographUrl?: string;
-  analysisResults?: AnalysisResults;
+  diagnosis?: string;
+  boneLoss?: number;
+  severity?: "mild" | "moderate" | "severe";
+  confidence?: number;
+  pathologies?: Pathology[];
+  treatmentPlan?: string[];
+  prognosis?: string;
+  followUp?: string;
+  status: "pending" | "analyzing" | "completed" | "error";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  analysisResults?: AnalysisResult;
 }
