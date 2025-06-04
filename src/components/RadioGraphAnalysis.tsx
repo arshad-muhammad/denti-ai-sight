@@ -245,33 +245,46 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
 
     // Draw measurement points with improved visibility
     const drawPoint = (point: Point2D, color: string, label: string) => {
+      // Determine if we're on a small screen
+      const isMobileView = window.innerWidth < 768;
+      
+      // Adjust sizes for mobile
+      const outerRadius = isMobileView ? 24 : 18;
+      const innerRadius = isMobileView ? 16 : 12;
+      const fontSize = isMobileView ? '24px' : '32px';
+      const labelPadding = isMobileView ? 12 : 16;
+
       // Draw outer glow
       ctx.beginPath();
       ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.arc(point.x, point.y, 18, 0, 2 * Math.PI);
+      ctx.arc(point.x, point.y, outerRadius, 0, 2 * Math.PI);
       ctx.fill();
 
       // Draw point
       ctx.beginPath();
       ctx.fillStyle = color;
       ctx.strokeStyle = 'white';
-      ctx.lineWidth = 5;
-      ctx.arc(point.x, point.y, 12, 0, 2 * Math.PI);
+      ctx.lineWidth = isMobileView ? 3 : 5;
+      ctx.arc(point.x, point.y, innerRadius, 0, 2 * Math.PI);
       ctx.fill();
       ctx.stroke();
 
       // Draw label background
-      ctx.font = 'bold 32px Arial';
+      ctx.font = `bold ${fontSize} Arial`;
       const textMetrics = ctx.measureText(label);
-      const padding = 16;
+      const padding = labelPadding;
       const textWidth = textMetrics.width;
-      const textHeight = 32;
+      const textHeight = parseInt(fontSize);
+      
+      // Position label based on screen size
+      const labelX = isMobileView ? point.x - (textWidth / 2) - padding : point.x + 25;
+      const labelY = isMobileView ? point.y - 40 : point.y;
       
       const gradient = ctx.createLinearGradient(
-        point.x + 25 - padding,
-        point.y - textHeight - padding,
-        point.x + 25 - padding,
-        point.y + padding
+        labelX - padding,
+        labelY - textHeight - padding,
+        labelX - padding,
+        labelY + padding
       );
       gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
       gradient.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
@@ -282,9 +295,10 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
       ctx.shadowOffsetX = 2;
       ctx.shadowOffsetY = 2;
       
+      // Position label box
       ctx.fillRect(
-        point.x + 25 - padding,
-        point.y - textHeight - padding,
+        labelX - padding,
+        labelY - textHeight - padding,
         textWidth + padding * 2,
         textHeight + padding * 2
       );
@@ -294,17 +308,25 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
 
+      // Draw label text
       ctx.fillStyle = '#ffffff';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(label, point.x + 25, point.y);
+      ctx.textAlign = isMobileView ? 'center' : 'left';
+      ctx.fillText(label, isMobileView ? labelX + padding : labelX, labelY);
     };
 
     // Draw connecting lines with improved visibility
     const drawLine = (start: Point2D, end: Point2D, color: string, label?: string) => {
+      const isMobileView = window.innerWidth < 768;
+      const lineWidth = isMobileView ? 6 : 5;
+      const glowWidth = isMobileView ? 10 : 8;
+      const fontSize = isMobileView ? '24px' : '28px';
+      const padding = isMobileView ? 10 : 14;
+
       // Draw line glow
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 8;
+      ctx.lineWidth = glowWidth;
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
@@ -312,7 +334,7 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
       // Draw main line
       ctx.beginPath();
       ctx.strokeStyle = color;
-      ctx.lineWidth = 5;
+      ctx.lineWidth = lineWidth;
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
@@ -322,9 +344,8 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
         const midX = (start.x + end.x) / 2;
         const midY = (start.y + end.y) / 2;
 
-        ctx.font = 'bold 28px Arial';
+        ctx.font = `bold ${fontSize} Arial`;
         const textMetrics = ctx.measureText(label);
-        const padding = 14;
 
         const gradient = ctx.createLinearGradient(
           midX - textMetrics.width / 2 - padding,
@@ -595,17 +616,19 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
             <CardDescription>Use auto-detection or manually mark anatomical landmarks</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="space-x-2">
+            {/* Mobile-optimized button layout */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-4 mb-4">
+              <div className="grid grid-cols-2 sm:flex gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="default"
-                      size="sm"
+                      size="lg"
+                      className="w-full sm:w-auto text-base sm:text-sm py-6 sm:py-2"
                       onClick={handleAutoDetect}
                       disabled={isProcessing}
                     >
-                      <Wand2 className="w-4 h-4 mr-2" />
+                      <Wand2 className="w-5 h-5 sm:w-4 sm:h-4 mr-2" />
                       Auto Detect
                     </Button>
                   </TooltipTrigger>
@@ -614,15 +637,28 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
                   </TooltipContent>
                 </Tooltip>
 
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full sm:w-auto text-base sm:text-sm py-6 sm:py-2"
+                  onClick={() => setPoints({})}
+                >
+                  <Undo className="w-5 h-5 sm:w-4 sm:h-4 mr-2" />
+                  Clear All
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-3 sm:flex gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant={markingMode === 'cej' ? 'default' : 'outline'}
-                      size="sm"
+                      size="lg"
+                      className="w-full sm:w-auto text-base sm:text-sm py-6 sm:py-2"
                       onClick={() => setMarkingMode('cej')}
                     >
-                      <MousePointer className="w-4 h-4 mr-2" />
-                      Mark CEJ
+                      <MousePointer className="w-5 h-5 sm:w-4 sm:h-4 mr-2" />
+                      CEJ
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -634,11 +670,12 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
                   <TooltipTrigger asChild>
                     <Button
                       variant={markingMode === 'bone' ? 'default' : 'outline'}
-                      size="sm"
+                      size="lg"
+                      className="w-full sm:w-auto text-base sm:text-sm py-6 sm:py-2"
                       onClick={() => setMarkingMode('bone')}
                     >
-                      <MousePointer className="w-4 h-4 mr-2" />
-                      Mark Bone
+                      <MousePointer className="w-5 h-5 sm:w-4 sm:h-4 mr-2" />
+                      Bone
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -650,11 +687,12 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
                   <TooltipTrigger asChild>
                     <Button
                       variant={markingMode === 'apex' ? 'default' : 'outline'}
-                      size="sm"
+                      size="lg"
+                      className="w-full sm:w-auto text-base sm:text-sm py-6 sm:py-2"
                       onClick={() => setMarkingMode('apex')}
                     >
-                      <MousePointer className="w-4 h-4 mr-2" />
-                      Mark Apex
+                      <MousePointer className="w-5 h-5 sm:w-4 sm:h-4 mr-2" />
+                      Apex
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -662,23 +700,18 @@ export const RadioGraphAnalysis = ({ imageUrl, onMeasurementsChange }: RadioGrap
                   </TooltipContent>
                 </Tooltip>
               </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPoints({})}
-              >
-                <Undo className="w-4 h-4 mr-2" />
-                Clear All
-              </Button>
             </div>
 
-            <div className="relative">
+            <div className="relative touch-none">
               <canvas
                 ref={canvasRef}
                 id="annotated-radiograph"
-                className="w-full h-auto border rounded-lg cursor-crosshair"
+                className="w-full h-auto border rounded-lg cursor-crosshair touch-none"
                 onClick={handleCanvasClick}
+                style={{
+                  WebkitTapHighlightColor: 'transparent',
+                  touchAction: 'none'
+                }}
               />
               {isProcessing && (
                 <div className="absolute inset-0 bg-background/50 backdrop-blur-sm flex items-center justify-center">

@@ -5,10 +5,11 @@ import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import html2canvas from 'html2canvas';
 import { getProxiedImageUrl } from '@/lib/services/imageProxy';
+import { Prognosis } from '@/types/analysis';
 
 interface EnhancedAnalysis {
   refinedPrognosis: {
-    status: 'Good' | 'Fair' | 'Poor';
+    status: Prognosis;
     explanation: string;
     riskFactors: string[];
     longTermOutlook: string;
