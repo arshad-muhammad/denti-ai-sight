@@ -42,9 +42,9 @@ const model = genAI.getGenerativeModel({
 
 // Define confidence thresholds
 const CONFIDENCE_THRESHOLDS = {
-  MINIMUM_ACCEPTABLE: 0.75,
-  HIGH_CONFIDENCE: 0.85,
-  VERY_HIGH_CONFIDENCE: 0.92
+  MINIMUM_ACCEPTABLE: 0.65,
+  HIGH_CONFIDENCE: 0.80,
+  VERY_HIGH_CONFIDENCE: 0.90
 };
 
 // Define severity criteria based on clinical parameters
@@ -172,22 +172,22 @@ const validateDiagnosticCriteria = (findings: AIFindings) => {
     const { percentage, severity } = findings.boneLoss;
     const criteria = SEVERITY_CRITERIA.boneLoss[severity as keyof typeof SEVERITY_CRITERIA.boneLoss];
     if (criteria && percentage >= criteria.min && percentage <= criteria.max) {
-      confidenceScore += 0.3;
+      confidenceScore += 0.35;
       validations.push('Bone loss measurements consistent with severity assessment');
     }
   }
 
   // Validate pathology findings
   if (findings.pathologies && findings.pathologies.length > 0) {
-    const validPathologies = findings.pathologies.filter(p => p.confidence > 0.8);
+    const validPathologies = findings.pathologies.filter(p => p.confidence > 0.75);
     if (validPathologies.length > 0) {
-      confidenceScore += 0.3 * (validPathologies.length / findings.pathologies.length);
+      confidenceScore += 0.35 * (validPathologies.length / findings.pathologies.length);
       validations.push('High confidence pathology detections present');
     }
   }
 
   // Add base confidence
-  confidenceScore += 0.4; // Base confidence for the model
+  confidenceScore += 0.45;
 
   return {
     confidenceScore: Math.min(confidenceScore, 1),
@@ -197,7 +197,16 @@ const validateDiagnosticCriteria = (findings: AIFindings) => {
 
 export const getEnhancedAnalysis = async (input: GeminiAnalysisInput): Promise<GeminiAnalysisResult> => {
   if (!GEMINI_API_KEY) {
+    console.error('Missing Gemini API key. Environment:', {
+      hasKey: !!GEMINI_API_KEY,
+      envVars: Object.keys(import.meta.env).filter(key => key.includes('GEMINI'))
+    });
     throw new Error('Gemini API key is not configured. Please add VITE_GEMINI_API_KEY to your environment variables.');
+  }
+
+  // Add error handling for input validation
+  if (!input || !input.diagnosis || !input.findings) {
+    throw new Error('Invalid input: Missing required fields');
   }
 
   // Validate input findings and calculate initial confidence

@@ -115,7 +115,7 @@ const Index = () => {
           </h1>
           <p className="mt-6 text-lg leading-8 text-muted-foreground">
             Transform your periodontal practice with advanced AI technology.
-            Get accurate, fast, and reliable periodontal analysis to enhance your diagnostic capabilities.
+           <br/> Get accurate, fast, and reliable periodontal analysis to enhance your diagnostic capabilities.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
             <Button 
