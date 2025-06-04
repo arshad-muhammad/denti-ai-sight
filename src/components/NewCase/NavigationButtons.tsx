@@ -1,5 +1,3 @@
-
-import React from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Brain } from "lucide-react";
 
@@ -12,14 +10,14 @@ interface NavigationButtonsProps {
   onSubmit: () => void;
 }
 
-const NavigationButtons: React.FC<NavigationButtonsProps> = ({
+const NavigationButtons = ({
   currentStep,
   totalSteps,
   canProceed,
   onPrevious,
   onNext,
   onSubmit,
-}) => {
+}: NavigationButtonsProps) => {
   return (
     <div className="flex justify-between">
       <Button
@@ -35,7 +33,7 @@ const NavigationButtons: React.FC<NavigationButtonsProps> = ({
         <Button
           onClick={onSubmit}
           disabled={!canProceed}
-          className="bg-medical-600 hover:bg-medical-700"
+          className="relative text-foreground dark:text-foreground bg-background dark:bg-background hover:bg-accent hover:dark:bg-accent/10 transition-all duration-300 border-0 before:absolute before:inset-0 before:p-[2px] before:rounded-lg before:bg-gradient-to-r before:from-blue-400 before:to-blue-600 before:-z-10 before:content-[''] after:absolute after:inset-[2px] after:rounded-[6px] after:bg-background after:dark:bg-background after:-z-10 after:content-[''] disabled:before:from-gray-300 disabled:before:to-gray-400 disabled:opacity-50"
         >
           <Brain className="w-4 h-4 mr-2" />
           Start AI Analysis
@@ -44,7 +42,7 @@ const NavigationButtons: React.FC<NavigationButtonsProps> = ({
         <Button
           onClick={onNext}
           disabled={!canProceed}
-          className="bg-medical-600 hover:bg-medical-700"
+          className="relative text-foreground dark:text-foreground bg-background dark:bg-background hover:bg-accent hover:dark:bg-accent/10 transition-all duration-300 border-0 before:absolute before:inset-0 before:p-[2px] before:rounded-lg before:bg-gradient-to-r before:from-blue-400 before:to-blue-600 before:-z-10 before:content-[''] after:absolute after:inset-[2px] after:rounded-[6px] after:bg-background after:dark:bg-background after:-z-10 after:content-[''] disabled:before:from-gray-300 disabled:before:to-gray-400 disabled:opacity-50"
         >
           Next
           <ArrowRight className="w-4 h-4 ml-2" />

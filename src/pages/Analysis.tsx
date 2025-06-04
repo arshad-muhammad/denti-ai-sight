@@ -45,6 +45,7 @@ import { Finding } from "@/types/analysis";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RadioGraphAnalysis } from "@/components/RadioGraphAnalysis";
 import { LoadingOverlay } from '@/components/LoadingOverlay';
+import { getStorage, ref, getDownloadURL } from 'firebase/storage';
 
 // Add these interfaces at the top of the file
 interface AIPathology {
@@ -236,7 +237,26 @@ const Analysis = () => {
           status: data.status || 'pending',
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
-          analysisResults: data.analysisResults || null,
+          analysisResults: data.diagnosis ? {
+            timestamp: data.updatedAt,
+            diagnosis: data.diagnosis,
+            confidence: data.confidence || 0.8,
+            findings: {
+              boneLoss: data.boneLoss ? {
+                percentage: data.boneLoss,
+                severity: data.severity || 'moderate',
+                regions: []
+              } : undefined,
+              pathologies: data.pathologies?.map(p => ({
+                type: 'other',
+                confidence: 0.8,
+                location: p.location,
+                severity: p.severity
+              }))
+            },
+            recommendations: data.treatmentPlan || [],
+            severity: data.severity || 'moderate'
+          } : null,
           diagnosis: data.diagnosis || null,
           boneLoss: typeof data.boneLoss === 'number' ? data.boneLoss : null,
           severity: data.severity || null,
@@ -558,24 +578,28 @@ const Analysis = () => {
       ]);
 
       setProgress(20);
-      console.log('Fetching radiograph from URL:', currentCaseData.radiographUrl);
-      const response = await fetch(currentCaseData.radiographUrl);
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch radiograph: ${response.statusText}`);
-      }
-      
-      setProgress(30);
-      const blob = await response.blob();
-      console.log('Radiograph fetched successfully, size:', blob.size, 'bytes');
-      
-      const file = new File([blob], 'radiograph.jpg', { type: 'image/jpeg' });
-      console.log('Created File object for analysis');
-
-      setProgress(40);
-      console.log('Starting AI analysis...');
-      
+      // Try to fetch using Firebase Storage SDK first
       try {
+        const storage = getStorage();
+        const imageRef = ref(storage, currentCaseData.radiographUrl);
+        const url = await getDownloadURL(imageRef);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch radiograph: ${response.statusText}`);
+        }
+        
+        setProgress(30);
+        const blob = await response.blob();
+        console.log('Radiograph fetched successfully, size:', blob.size, 'bytes');
+        
+        const file = new File([blob], 'radiograph.jpg', { type: 'image/jpeg' });
+        console.log('Created File object for analysis');
+
+        setProgress(40);
+        console.log('Starting AI analysis...');
+        
         const results = await AIService.analyzeImage(file);
         console.log('AI analysis completed. Results:', results);
         
@@ -632,10 +656,75 @@ const Analysis = () => {
           description: "The dental radiograph analysis has been completed successfully.",
         });
       } catch (error) {
-        handleAnalysisError(error, caseRef, userCaseRef);
+        console.error('Error fetching image:', error);
+        // If direct fetch fails, try using a proxy or alternative method
+        const proxyUrl = `https://cors-anywhere.herokuapp.com/${currentCaseData.radiographUrl}`;
+        const response = await fetch(proxyUrl);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch radiograph through proxy: ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const file = new File([blob], 'radiograph.jpg', { type: 'image/jpeg' });
+        const results = await AIService.analyzeImage(file);
+        console.log('AI analysis completed. Results:', results);
+        
+        if (!isMounted.current) {
+          console.log('Component unmounted, stopping analysis');
+          return;
+        }
+
+        setProgress(80);
+        console.log('Updating case with analysis results...');
+        
+        const updateDataWithTimestamp = prepareUpdateData(results);
+        console.log('Update data prepared:', updateDataWithTimestamp);
+
+        // Convert Timestamp to FieldValue for Firestore update
+        const firestoreUpdate = {
+          ...updateDataWithTimestamp,
+          updatedAt: serverTimestamp()
+        };
+
+        await Promise.all([
+          updateDoc(caseRef, firestoreUpdate).catch((error) => {
+            console.error('Failed to update main case document:', error);
+            return null;
+          }),
+          updateDoc(userCaseRef, firestoreUpdate).catch((error) => {
+            console.error('Failed to update user case document:', error);
+            return null;
+          })
+        ]);
+
+        setProgress(100);
+        console.log('Database update completed');
+        
+        // Update local state with Timestamp instead of FieldValue
+        setCaseData(prev => {
+          if (!prev) return null;
+          const updated: FirebaseDentalCase = {
+            ...prev,
+            ...updateDataWithTimestamp,
+            status: 'completed' as const,
+            updatedAt: Timestamp.now()
+          };
+          console.log('Updated case data:', updated);
+          return updated;
+        });
+        
+        setAnalysisResults(results);
+        setIsComplete(true);
+
+        console.log('Analysis process completed successfully');
+        toast({
+          title: "Analysis Complete",
+          description: "The dental radiograph analysis has been completed successfully.",
+        });
       }
     } catch (error) {
-      handleAnalysisError(error, doc(db, 'cases', currentCaseData.id), doc(db, `cases/${user?.uid}/cases/${currentCaseData.id}`));
+      handleAnalysisError(error, caseRef, userCaseRef);
     } finally {
       if (isMounted.current) {
         setAnalyzing(false);

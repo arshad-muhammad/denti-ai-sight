@@ -82,16 +82,32 @@ const NewCase = () => {
 
   const handleCreateCase = async () => {
     if (!xrayFile || !user) {
-      setError('Please upload a radiograph first');
+      console.error('Validation failed:', { hasFile: !!xrayFile, hasUser: !!user });
+      setError('Please upload a radiograph and ensure you are logged in');
       return;
     }
     
     setLoading(true);
-    console.log('Starting case creation...');
+    console.log('Starting case creation...', {
+      fileInfo: {
+        name: xrayFile.name,
+        type: xrayFile.type,
+        size: xrayFile.size
+      },
+      userInfo: {
+        uid: user.uid,
+        isAuthenticated: !!user
+      }
+    });
 
     try {
       // Create the case with minimal required data
-      console.log('Creating case document...');
+      console.log('Creating case document with data:', {
+        userId: user.uid,
+        patientDataFields: Object.keys(patientData),
+        clinicalDataFields: Object.keys(clinicalData)
+      });
+
       const caseId = await dentalCaseService.create({
         userId: user.uid,
         patientData: {
@@ -105,16 +121,31 @@ const NewCase = () => {
         status: "pending",
         createdAt: new Date().toISOString(),
       });
+      
       console.log('Case document created successfully with ID:', caseId);
 
       // Upload the radiograph
       console.log('Starting radiograph upload...', {
         fileSize: xrayFile.size,
         fileType: xrayFile.type,
-        fileName: xrayFile.name
+        fileName: xrayFile.name,
+        caseId
       });
+
+      try {
       await dentalCaseService.uploadRadiograph(caseId, xrayFile);
       console.log('Radiograph uploaded successfully');
+      } catch (uploadError) {
+        console.error('Radiograph upload failed:', uploadError);
+        // Try to clean up the case if radiograph upload fails
+        try {
+          await dentalCaseService.delete(caseId);
+          console.log('Cleaned up case after failed radiograph upload');
+        } catch (cleanupError) {
+          console.error('Failed to clean up case after upload error:', cleanupError);
+        }
+        throw uploadError;
+      }
 
       // Wait for the radiograph URL to be set with exponential backoff
       let updatedCase = null;
@@ -124,11 +155,20 @@ const NewCase = () => {
 
       while (retries < maxRetries) {
         console.log(`Verifying radiograph URL (attempt ${retries + 1}/${maxRetries})...`);
+        try {
         updatedCase = await dentalCaseService.getById(caseId);
+          console.log('Case verification attempt result:', {
+            hasCase: !!updatedCase,
+            hasRadiographUrl: !!updatedCase?.radiographUrl,
+            attempt: retries + 1
+          });
         
         if (updatedCase?.radiographUrl) {
           console.log('Radiograph URL verified successfully');
           break;
+          }
+        } catch (verifyError) {
+          console.error(`Verification attempt ${retries + 1} failed:`, verifyError);
         }
 
         console.log(`Radiograph URL not set yet, waiting ${retryDelay}ms before retry...`);
@@ -154,12 +194,20 @@ const NewCase = () => {
       let errorMessage = 'Failed to create case. Please try again.';
       
       if (error instanceof Error) {
+        console.error('Detailed error:', {
+          message: error.message,
+          stack: error.stack,
+          type: error.constructor.name
+        });
+        
         if (error.message.includes('upload')) {
           errorMessage = 'Failed to upload radiograph. Please try again.';
         } else if (error.message.includes('create')) {
           errorMessage = 'Failed to create case. Please check your connection and try again.';
         } else if (error.message.includes('URL was not set')) {
           errorMessage = 'Failed to save radiograph URL. Please try again.';
+        } else if (error.message.includes('auth')) {
+          errorMessage = 'Authentication error. Please try logging in again.';
         }
       }
       
