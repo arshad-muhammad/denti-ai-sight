@@ -1,6 +1,51 @@
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { EnhancedAnalysis } from "@/types/analysis";
 
+// Rate limiting configuration
+const RATE_LIMIT = {
+  MAX_REQUESTS_PER_MINUTE: 14, // Keep below the 15 limit
+  RETRY_ATTEMPTS: 3,
+  MIN_RETRY_DELAY: 24000, // 24 seconds as suggested by the API
+  MAX_RETRY_DELAY: 60000, // 1 minute max delay
+};
+
+// Request tracking
+let requestTimestamps: number[] = [];
+
+const clearOldRequests = () => {
+  const now = Date.now();
+  requestTimestamps = requestTimestamps.filter(
+    timestamp => now - timestamp < 60000 // Remove requests older than 1 minute
+  );
+};
+
+const canMakeRequest = (): boolean => {
+  clearOldRequests();
+  return requestTimestamps.length < RATE_LIMIT.MAX_REQUESTS_PER_MINUTE;
+};
+
+const waitForNextAvailableSlot = async (): Promise<void> => {
+  clearOldRequests();
+  if (canMakeRequest()) return;
+
+  const oldestRequest = Math.min(...requestTimestamps);
+  const waitTime = 60000 - (Date.now() - oldestRequest);
+  await new Promise(resolve => setTimeout(resolve, waitTime));
+};
+
+const addRequest = () => {
+  clearOldRequests();
+  requestTimestamps.push(Date.now());
+};
+
+const exponentialBackoff = (attempt: number): number => {
+  const delay = Math.min(
+    RATE_LIMIT.MIN_RETRY_DELAY * Math.pow(2, attempt),
+    RATE_LIMIT.MAX_RETRY_DELAY
+  );
+  return delay;
+};
+
 // Get the API key from Vite's environment variables
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -13,7 +58,7 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
 
 // Get the model with configuration
 const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
+  model: "gemini-pro",
   generationConfig: {
     temperature: 0.3,
     topK: 20,
@@ -76,18 +121,36 @@ interface AIFindings {
   }>;
 }
 
-interface GeminiAnalysisInput {
+export interface GeminiAnalysisInput {
   diagnosis: string;
-  findings: AIFindings;
+  findings: {
+    boneLoss?: {
+      percentage: number;
+      severity: string;
+      regions: string[];
+      measurements?: Array<{
+        type: string;
+        value: number;
+        confidence: number;
+      }>;
+    };
+    pathologies?: Array<{
+      type: string;
+      location: string;
+      severity: string;
+      confidence: number;
+    }>;
+  };
   patientData: {
-    age: number;
+    age: string | number;
     gender: string;
     medicalHistory: {
-      smoking: boolean;
-      alcohol: boolean;
-      diabetes: boolean;
-      hypertension: boolean;
-      notes: string;
+      smoking?: boolean;
+      diabetes?: boolean;
+      notes?: string;
+      hypertension?: boolean;
+      alcohol?: boolean;
+      [key: string]: boolean | string | undefined;
     };
   };
 }
@@ -104,62 +167,76 @@ interface GeminiAnalysisResult extends EnhancedAnalysis {
 const validateResponse = (parsedResult: GeminiAnalysisResult) => {
   try {
     // Check for required top-level properties
-    const requiredProperties = ['refinedPrognosis', 'detailedTreatmentPlan', 'detailedFindings'];
+    const requiredProperties = ['refinedPrognosis', 'detailedFindings', 'detailedTreatmentPlan'];
     for (const prop of requiredProperties) {
       if (!parsedResult[prop]) {
-        console.warn(`Missing required property: ${prop}`);
-        return false;
+        throw new Error(`Missing required property: ${prop}`);
       }
     }
 
-    // Validate detailed findings
+    // Validate detailed findings structure
     const { detailedFindings } = parsedResult;
+    
+    // Validate primary condition
     if (!detailedFindings.primaryCondition?.description) {
-      console.warn('Missing primary condition description');
-      return false;
+      throw new Error('Missing primary condition description');
+    }
+    if (!['mild', 'moderate', 'severe'].includes(detailedFindings.primaryCondition.severity)) {
+      throw new Error('Invalid primary condition severity');
+    }
+    if (!Array.isArray(detailedFindings.primaryCondition.implications) || 
+        detailedFindings.primaryCondition.implications.length === 0) {
+      throw new Error('Primary condition implications must be a non-empty array');
     }
 
-    // Check for minimum description length and content quality
-    const description = detailedFindings.primaryCondition.description;
-    if (description.length < 50) {
-      console.warn('Primary condition description too short');
-    return false;
-  }
+    // Validate secondary findings
+    if (!Array.isArray(detailedFindings.secondaryFindings)) {
+      throw new Error('Secondary findings must be an array');
+    }
+    for (const finding of detailedFindings.secondaryFindings) {
+      if (!finding.condition || !finding.description || !finding.severity || !Array.isArray(finding.implications)) {
+        throw new Error('Invalid secondary finding structure');
+      }
+      if (!['mild', 'moderate', 'severe'].includes(finding.severity)) {
+        throw new Error('Invalid secondary finding severity');
+      }
+      if (finding.implications.length === 0) {
+        throw new Error('Secondary finding implications must be non-empty');
+      }
+    }
 
-  // Verify measurement inclusions
-    if (!description.match(/\d+(?:\.\d+)?(?:\s*%|\s*mm)/)) {
-      console.warn('Missing numerical measurements in description');
-    return false;
-  }
+    // Validate risk assessment
+    const { riskAssessment } = detailedFindings;
+    if (!riskAssessment?.current || !riskAssessment?.future || !Array.isArray(riskAssessment?.mitigationStrategies)) {
+      throw new Error('Invalid risk assessment structure');
+    }
+    if (riskAssessment.mitigationStrategies.length === 0) {
+      throw new Error('Risk mitigation strategies must be non-empty');
+    }
 
-    // Check for required clinical terminology
-  const requiredTerms = ['periodontal', 'radiographic', 'clinical'];
-    const hasRequiredTerms = requiredTerms.some(term => 
-      description.toLowerCase().includes(term)
-    );
-    if (!hasRequiredTerms) {
-      console.warn('Missing required clinical terminology');
-      return false;
+    // Validate refined prognosis
+    const { refinedPrognosis } = parsedResult;
+    if (!['Good', 'Fair', 'Poor', 'Questionable'].includes(refinedPrognosis.status)) {
+      throw new Error('Invalid prognosis status');
+    }
+    if (!refinedPrognosis.explanation || !refinedPrognosis.longTermOutlook || 
+        !Array.isArray(refinedPrognosis.riskFactors) || refinedPrognosis.riskFactors.length === 0) {
+      throw new Error('Invalid refined prognosis structure');
     }
 
     // Validate treatment plan
     const { detailedTreatmentPlan } = parsedResult;
-    if (!detailedTreatmentPlan.immediate?.length || !detailedTreatmentPlan.longTerm?.length) {
-      console.warn('Missing treatment plan details');
-      return false;
+    const treatmentSections = ['immediate', 'shortTerm', 'longTerm', 'preventiveMeasures', 'lifestyle'];
+    for (const section of treatmentSections) {
+      if (!Array.isArray(detailedTreatmentPlan[section]) || detailedTreatmentPlan[section].length === 0) {
+        throw new Error(`Invalid treatment plan section: ${section}`);
+      }
     }
 
-    // Validate prognosis
-    const { refinedPrognosis } = parsedResult;
-    if (!['Good', 'Fair', 'Poor', 'Questionable'].includes(refinedPrognosis.status)) {
-      console.warn('Invalid prognosis status');
-    return false;
-  }
-
-  return true;
+    return true;
   } catch (error) {
-    console.error('Error during response validation:', error);
-    return false;
+    console.error('Validation error:', error);
+    throw error;
   }
 };
 
@@ -197,131 +274,193 @@ const validateDiagnosticCriteria = (findings: AIFindings) => {
 
 export const getEnhancedAnalysis = async (input: GeminiAnalysisInput): Promise<GeminiAnalysisResult> => {
   if (!GEMINI_API_KEY) {
-    console.error('Missing Gemini API key. Environment:', {
-      hasKey: !!GEMINI_API_KEY,
-      envVars: Object.keys(import.meta.env).filter(key => key.includes('GEMINI'))
-    });
     throw new Error('Gemini API key is not configured. Please add VITE_GEMINI_API_KEY to your environment variables.');
   }
 
-  // Add error handling for input validation
   if (!input || !input.diagnosis || !input.findings) {
     throw new Error('Invalid input: Missing required fields');
   }
 
-  // Validate input findings and calculate initial confidence
-  const { confidenceScore, validations } = validateDiagnosticCriteria(input.findings);
+  let lastError: Error | null = null;
   
-  if (confidenceScore < CONFIDENCE_THRESHOLDS.MINIMUM_ACCEPTABLE) {
-    console.warn('Low confidence in diagnostic criteria:', confidenceScore);
-  }
+  for (let attempt = 0; attempt < RATE_LIMIT.RETRY_ATTEMPTS; attempt++) {
+    try {
+      // Wait for available request slot
+      await waitForNextAvailableSlot();
 
-  const basePrompt = `You are an advanced dental AI diagnostic system with expertise in periodontal and radiographic analysis. 
-Analyze the following case and provide a detailed response in JSON format.
+      // Validate diagnostic criteria
+      const { confidenceScore, validations } = validateDiagnosticCriteria(input.findings);
+      
+      if (confidenceScore < CONFIDENCE_THRESHOLDS.MINIMUM_ACCEPTABLE) {
+        console.warn('Low confidence score, using fallback response');
+        return getFallbackResponse(input, confidenceScore, validations);
+      }
 
-CASE DETAILS:
-Primary Diagnosis: ${input.diagnosis}
-Clinical Findings: ${JSON.stringify(input.findings, null, 2)}
+      // Track this request
+      addRequest();
 
-Patient Profile:
-- Age: ${input.patientData.age}
-- Gender: ${input.patientData.gender}
-- Medical History: ${JSON.stringify(input.patientData.medicalHistory, null, 2)}
+      // Construct the prompt
+      const prompt = `You are a dental analysis AI assistant. Analyze the following dental case and provide a detailed assessment.
+Your response must be a valid JSON object that exactly matches the required structure.
 
-IMPORTANT: Your response MUST:
-1. Include specific measurements (in mm or %)
-2. Use clinical terminology
-3. Provide detailed descriptions (minimum 50 words)
-4. Follow the exact JSON structure below
-5. Include all required fields
+Input Data:
+Diagnosis: ${input.diagnosis}
+Findings: ${JSON.stringify(input.findings, null, 2)}
+Patient Data: ${JSON.stringify(input.patientData, null, 2)}
 
-Required JSON format:
+Instructions:
+1. Your entire response must be a single JSON object
+2. Do not include any explanatory text outside the JSON
+3. Do not use markdown formatting
+4. All string values must be descriptive and clinically relevant
+5. All arrays must have at least one item
+6. Severity must be one of: "mild", "moderate", "severe"
+7. All text fields should be detailed and professionally written
+8. Include specific measurements and clinical terms where relevant
+
+Required JSON Structure:
 {
   "refinedPrognosis": {
-    "status": "Good|Fair|Poor|Questionable",
-    "explanation": "string",
-    "riskFactors": ["string"],
-    "longTermOutlook": "string"
-  },
-  "detailedTreatmentPlan": {
-    "immediate": ["string"],
-    "shortTerm": ["string"],
-    "longTerm": ["string"],
-    "preventiveMeasures": ["string"],
-    "lifestyle": ["string"]
+    "status": "Good" | "Fair" | "Poor" | "Questionable",
+    "explanation": "Detailed clinical explanation",
+    "riskFactors": ["Specific risk factors"],
+    "longTermOutlook": "Long-term prognosis explanation"
   },
   "detailedFindings": {
     "primaryCondition": {
-      "description": "string (min 50 words, include measurements)",
-      "severity": "string",
-      "implications": ["string"]
+      "description": "Detailed clinical description",
+      "severity": "mild" | "moderate" | "severe",
+      "implications": ["Clinical implications"]
     },
     "secondaryFindings": [
       {
-        "condition": "string",
-        "description": "string",
-        "severity": "string",
-        "implications": ["string"]
+        "condition": "Name of condition",
+        "description": "Detailed description",
+        "severity": "mild" | "moderate" | "severe",
+        "implications": ["Clinical implications"]
       }
     ],
     "riskAssessment": {
-      "current": "string",
-      "future": "string",
-      "mitigationStrategies": ["string"]
+      "current": "Current risk status description",
+      "future": "Future risk projection",
+      "mitigationStrategies": ["Specific mitigation strategies"]
     }
+  },
+  "detailedTreatmentPlan": {
+    "immediate": ["Immediate actions needed"],
+    "shortTerm": ["Short-term treatment steps"],
+    "longTerm": ["Long-term management steps"],
+    "preventiveMeasures": ["Preventive actions"],
+    "lifestyle": ["Lifestyle recommendations"]
   }
-}`;
+}
 
-  try {
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError = null;
+Example severity descriptions:
+- mild: "Early stage with minimal tissue involvement"
+- moderate: "Progressive condition requiring intervention"
+- severe: "Advanced stage with significant impact"
 
-    while (attempts < maxAttempts) {
+Base your analysis on the provided diagnosis, findings, and patient data. Ensure all descriptions are clinically accurate and professionally written.`;
+
+      // Generate the analysis
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = await response.text();
+      
+      // Detailed logging
+      console.log('=== Gemini API Response Debug ===');
+      console.log('Response type:', typeof text);
+      console.log('Response length:', text.length);
+      console.log('Raw response:', text);
+      console.log('Response starts with:', text.substring(0, 100));
+      console.log('Response ends with:', text.substring(text.length - 100));
+      console.log('================================');
+      
+      // Clean and prepare the response text
+      const cleanedText = text
+        // Remove any markdown code blocks
+        .replace(/```json\n|\n```|```/g, '')
+        // Remove any leading/trailing whitespace
+        .trim()
+        // Remove any potential explanatory text before or after the JSON
+        .replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1')
+        // Ensure proper JSON structure
+        .replace(/,(\s*[}\]])/g, '$1');
+      
+      console.log('=== Cleaned Response Debug ===');
+      console.log('Cleaned type:', typeof cleanedText);
+      console.log('Cleaned length:', cleanedText.length);
+      console.log('Cleaned response:', cleanedText);
+      console.log('Cleaned starts with:', cleanedText.substring(0, 100));
+      console.log('Cleaned ends with:', cleanedText.substring(cleanedText.length - 100));
+      console.log('============================');
+      
+      // Parse and validate the response
       try {
-        const result = await model.generateContent(basePrompt);
-        const response = await result.response;
-        const text = response.text();
-        
-        // Extract JSON from the response
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No valid JSON found in response');
+        if (!cleanedText) {
+          console.warn('Empty response, using fallback');
+          return getFallbackResponse(input, 0.5, ['Empty response from API']);
         }
-
-        const parsedResult = JSON.parse(jsonMatch[0]);
         
-        // Validate the response
-          if (!validateResponse(parsedResult)) {
-          throw new Error('Response validation failed');
-        }
-
-        // Add confidence metrics
-        return {
-          ...parsedResult,
-          diagnosticConfidence: {
-            overall: confidenceScore,
-            details: validations,
-            timestamp: new Date().toISOString(),
-            modelVersion: "gemini-1.5-flash"
+        let parsedResult;
+        try {
+          parsedResult = JSON.parse(cleanedText);
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError);
+          // Try to fix common JSON issues
+          const fixedJson = cleanedText
+            // Fix missing quotes around property names
+            .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3')
+            // Fix single quotes
+            .replace(/'/g, '"')
+            // Remove trailing commas
+            .replace(/,(\s*[}\]])/g, '$1');
+          
+          try {
+            parsedResult = JSON.parse(fixedJson);
+          } catch (secondError) {
+            console.warn('Failed to fix JSON, using fallback');
+            return getFallbackResponse(input, 0.5, ['Invalid JSON format']);
           }
-        };
-      } catch (error) {
-        lastError = error;
-        console.warn(`Attempt ${attempts + 1} failed:`, error);
-        attempts++;
-        
-        // Add delay between retries
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
-      }
-    }
+        }
 
-    // If all attempts fail, throw the last error
-    throw new Error(`Failed to generate valid analysis after ${maxAttempts} attempts: ${lastError?.message}`);
-  } catch (error) {
-    console.error('Error in getEnhancedAnalysis:', error);
-    throw error;
+        if (!parsedResult || typeof parsedResult !== 'object') {
+          console.warn('Invalid response structure, using fallback');
+          return getFallbackResponse(input, 0.5, ['Invalid response structure']);
+        }
+        
+        try {
+          validateResponse(parsedResult);
+          return parsedResult;
+        } catch (validationError) {
+          console.warn('Validation failed, using fallback:', validationError.message);
+          return getFallbackResponse(input, 0.5, ['Failed validation: ' + validationError.message]);
+        }
+      } catch (error) {
+        console.error('Error handling Gemini response:', error);
+        console.error('Raw response:', text);
+        console.error('Cleaned response:', cleanedText);
+        return getFallbackResponse(input, 0.5, ['Error: ' + error.message]);
+      }
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1} failed:`, error);
+      lastError = error as Error;
+
+      // Check if it's a rate limit error
+      if (error instanceof Error && error.message.includes('429')) {
+        const retryDelay = exponentialBackoff(attempt);
+        console.log(`Rate limit hit, waiting ${retryDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        continue;
+      }
+
+      // For other errors, throw immediately
+      throw error;
+    }
   }
+
+  // If we've exhausted all retries
+  throw lastError || new Error('Failed to get enhanced analysis after multiple retries');
 };
 
 const getFallbackResponse = (
@@ -329,16 +468,18 @@ const getFallbackResponse = (
   confidenceScore: number,
   validations: string[]
 ): GeminiAnalysisResult => {
+  const medicalHistory = input.patientData.medicalHistory || {};
+  
   return {
       refinedPrognosis: {
         status: input.findings.boneLoss?.severity === 'severe' ? 'Poor' :
              input.findings.boneLoss?.severity === 'moderate' ? 'Fair' : 'Good',
         explanation: `Based on the ${input.diagnosis}, a thorough professional evaluation is recommended for accurate prognosis.`,
         riskFactors: [
-          input.patientData.medicalHistory.smoking ? 'Active smoker - increased risk of periodontal disease' : 'Non-smoker',
-          input.patientData.medicalHistory.diabetes ? 'Diabetes - may affect healing and treatment response' : 'No diabetes',
+          medicalHistory.smoking ? 'Active smoker - increased risk of periodontal disease' : 'Non-smoker',
+          medicalHistory.diabetes ? 'Diabetes - may affect healing and treatment response' : 'No diabetes',
           input.findings.boneLoss ? `Bone loss detected: ${input.findings.boneLoss.percentage}%` : 'Bone loss assessment needed',
-          ...Object.entries(input.patientData.medicalHistory)
+          ...Object.entries(medicalHistory)
             .filter(([key, value]) => value && key !== 'notes')
             .map(([key]) => `${key.charAt(0).toUpperCase() + key.slice(1)} - requires consideration in treatment planning`)
         ],
@@ -367,7 +508,7 @@ const getFallbackResponse = (
           'Regular professional dental cleanings'
         ],
         lifestyle: [
-          input.patientData.medicalHistory.smoking ? 'Smoking cessation advised' : 'Maintain smoke-free lifestyle',
+          medicalHistory.smoking ? 'Smoking cessation advised' : 'Maintain smoke-free lifestyle',
           'Balanced diet low in sugary foods',
           'Regular exercise and stress management',
           'Adequate hydration'
@@ -391,7 +532,7 @@ const getFallbackResponse = (
         })) || [],
         riskAssessment: {
           current: `Current risk level based on findings and medical history: ${
-            input.patientData.medicalHistory.smoking || input.patientData.medicalHistory.diabetes ? 'High' : 'Moderate'
+            medicalHistory.smoking || medicalHistory.diabetes ? 'High' : 'Moderate'
           }`,
           future: 'Long-term prognosis dependent on treatment compliance and risk factor management',
           mitigationStrategies: [

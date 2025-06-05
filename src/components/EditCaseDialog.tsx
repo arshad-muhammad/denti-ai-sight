@@ -12,63 +12,136 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { FirebaseDentalCase } from "@/types/firebase";
-import { dentalCaseService } from "@/lib/services/dentalCase";
+import { Database } from "@/types/supabase";
+import dentalCaseService from "@/lib/services/dentalCaseService";
 import { useToast } from "@/components/ui/use-toast";
 
+type Case = Database['public']['Tables']['cases']['Row'];
+
 interface EditCaseDialogProps {
-  caseData: FirebaseDentalCase;
-  onUpdate: (updatedCase: FirebaseDentalCase) => void;
+  caseData: {
+    id: string;
+    user_id: string;
+    patient_data: {
+      fullName: string;
+      age: string;
+      gender: string;
+      phone: string;
+      email: string;
+      address: string;
+      smoking: boolean;
+      alcohol: boolean;
+      diabetes: boolean;
+      hypertension: boolean;
+      chiefComplaint: string;
+      medicalHistory: string;
+    };
+    clinical_data: {
+      toothNumber?: string;
+      mobility?: boolean;
+      bleeding?: boolean;
+      sensitivity?: boolean;
+      pocketDepth?: string;
+      additionalNotes?: string;
+      bopScore?: number;
+      totalSites?: number;
+      bleedingSites?: number;
+      anteriorBleeding?: number;
+      posteriorBleeding?: number;
+      deepPocketSites?: number;
+      averagePocketDepth?: number;
+      riskScore?: number;
+      boneLossAgeRatio?: number;
+      bopFactor?: number;
+      clinicalAttachmentLoss?: number;
+      redFlags?: {
+        hematologicDisorder?: boolean;
+        necrotizingPeriodontitis?: boolean;
+        leukemiaSigns?: boolean;
+        details?: string;
+      };
+      plaqueCoverage?: number;
+      smoking?: boolean;
+      alcohol?: boolean;
+      diabetes?: boolean;
+      hypertension?: boolean;
+    };
+    analysis_results?: {
+      diagnosis?: string;
+      confidence?: number;
+      severity?: string;
+      findings?: {
+        boneLoss?: {
+          percentage: number;
+          severity: string;
+          regions: string[];
+          measurements?: Array<{
+            type: string;
+            value: number;
+            confidence: number;
+          }>;
+        };
+        pathologies?: Array<{
+          type: string;
+          location: string;
+          severity: string;
+          confidence: number;
+        }>;
+      };
+      periodontal_stage?: {
+        stage: string;
+        description: string;
+      };
+    };
+  };
+  onUpdate: (updatedCase: EditCaseDialogProps['caseData']) => void;
   trigger?: React.ReactNode;
 }
 
 export const EditCaseDialog = forwardRef<HTMLDivElement, EditCaseDialogProps>(
   ({ caseData, onUpdate, trigger }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [formData, setFormData] = useState({
-      patientName: caseData.patientName,
-      patientAge: caseData.patientAge,
-      patientGender: caseData.patientGender,
-      patientContact: {
-        phone: caseData.patientContact?.phone || "",
-        email: caseData.patientContact?.email || "",
-        address: caseData.patientContact?.address || "",
-      },
-      medicalHistory: {
-        smoking: caseData.medicalHistory?.smoking || false,
-        alcohol: caseData.medicalHistory?.alcohol || false,
-        diabetes: caseData.medicalHistory?.diabetes || false,
-        hypertension: caseData.medicalHistory?.hypertension || false,
-        notes: caseData.medicalHistory?.notes || "",
-      },
-      clinicalFindings: {
-        toothNumber: caseData.clinicalFindings?.toothNumber || "",
-        mobility: caseData.clinicalFindings?.mobility || false,
-        bleeding: caseData.clinicalFindings?.bleeding || false,
-        sensitivity: caseData.clinicalFindings?.sensitivity || false,
-        pocketDepth: caseData.clinicalFindings?.pocketDepth || "",
-        notes: caseData.clinicalFindings?.notes || "",
-      },
-    });
-
     const { toast } = useToast();
+    const [formData, setFormData] = useState({
+      fullName: caseData.patient_data.fullName,
+      age: caseData.patient_data.age,
+      gender: caseData.patient_data.gender,
+      phone: caseData.patient_data.phone,
+      email: caseData.patient_data.email,
+      address: caseData.patient_data.address,
+      medicalHistory: caseData.patient_data.medicalHistory
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       try {
-        // Transform form data to match FirebaseDentalCase structure
-        const updateData: Partial<FirebaseDentalCase> = {
-          patientName: formData.patientName,
-          patientAge: formData.patientAge,
-          patientGender: formData.patientGender,
-          patientContact: formData.patientContact,
-          medicalHistory: formData.medicalHistory,
-          clinicalFindings: formData.clinicalFindings
+        // Transform form data to match Case structure
+        const updateData = {
+          patient_data: {
+            ...caseData.patient_data,
+            fullName: formData.fullName,
+            age: formData.age,
+            gender: formData.gender,
+            phone: formData.phone,
+            email: formData.email,
+            address: formData.address,
+            medicalHistory: formData.medicalHistory
+          }
         };
 
-        const updatedCase = await dentalCaseService.update(caseData.id, updateData);
-        onUpdate(updatedCase);
+        await dentalCaseService.update(caseData.id, updateData);
+        onUpdate({
+          ...caseData,
+          patient_data: {
+            ...caseData.patient_data,
+            ...updateData.patient_data
+          }
+        });
         setIsOpen(false);
+        toast({
+          title: "Success",
+          description: "Case details updated successfully.",
+        });
       } catch (error) {
         console.error('Error updating case:', error);
         toast({
@@ -82,324 +155,79 @@ export const EditCaseDialog = forwardRef<HTMLDivElement, EditCaseDialogProps>(
     return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogTrigger asChild>
-          <div ref={ref} onClick={(e) => {
-            e.stopPropagation();
-            setIsOpen(true);
-          }}>
-            {trigger || <Button variant="outline">Edit Case</Button>}
-          </div>
+          {trigger}
         </DialogTrigger>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Edit Case Details</DialogTitle>
             <DialogDescription>
-              Update patient information and medical history
+              Make changes to the case information here. Click save when you're done.
             </DialogDescription>
           </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Patient Information */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-4">
-              <h3 className="text-lg font-medium">Patient Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="patientName">Name</Label>
-                  <Input
-                    id="patientName"
-                    value={formData.patientName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientName: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="patientAge">Age</Label>
-                  <Input
-                    id="patientAge"
-                    type="number"
-                    value={formData.patientAge}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientAge: parseInt(e.target.value) || 0,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="patientGender">Gender</Label>
-                  <Input
-                    id="patientGender"
-                    value={formData.patientGender}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientGender: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="fullName">Patient Name</Label>
+                <Input
+                  id="fullName"
+                  value={formData.fullName}
+                  onChange={(e) => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="age">Age</Label>
+                <Input
+                  id="age"
+                  value={formData.age}
+                  onChange={(e) => setFormData(prev => ({ ...prev, age: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="gender">Gender</Label>
+                <Input
+                  id="gender"
+                  value={formData.gender}
+                  onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="address">Address</Label>
+                <Input
+                  id="address"
+                  value={formData.address}
+                  onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                />
+              </div>
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="medicalHistory">Medical History</Label>
+                <Textarea
+                  id="medicalHistory"
+                  value={formData.medicalHistory}
+                  onChange={(e) => setFormData(prev => ({ ...prev, medicalHistory: e.target.value }))}
+                />
               </div>
             </div>
-
-            {/* Contact Information */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Contact Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    value={formData.patientContact.phone}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientContact: {
-                          ...prev.patientContact,
-                          phone: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.patientContact.email}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientContact: {
-                          ...prev.patientContact,
-                          email: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2 space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Textarea
-                    id="address"
-                    value={formData.patientContact.address}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        patientContact: {
-                          ...prev.patientContact,
-                          address: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Medical History */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Medical History</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="smoking">Smoking</Label>
-                  <Switch
-                    id="smoking"
-                    checked={formData.medicalHistory.smoking}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        medicalHistory: {
-                          ...prev.medicalHistory,
-                          smoking: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="alcohol">Alcohol</Label>
-                  <Switch
-                    id="alcohol"
-                    checked={formData.medicalHistory.alcohol}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        medicalHistory: {
-                          ...prev.medicalHistory,
-                          alcohol: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="diabetes">Diabetes</Label>
-                  <Switch
-                    id="diabetes"
-                    checked={formData.medicalHistory.diabetes}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        medicalHistory: {
-                          ...prev.medicalHistory,
-                          diabetes: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="hypertension">Hypertension</Label>
-                  <Switch
-                    id="hypertension"
-                    checked={formData.medicalHistory.hypertension}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        medicalHistory: {
-                          ...prev.medicalHistory,
-                          hypertension: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2 space-y-2">
-                  <Label htmlFor="medicalNotes">Medical Notes</Label>
-                  <Textarea
-                    id="medicalNotes"
-                    value={formData.medicalHistory.notes}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        medicalHistory: {
-                          ...prev.medicalHistory,
-                          notes: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Clinical Findings */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Clinical Findings</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="toothNumber">Tooth Number</Label>
-                  <Input
-                    id="toothNumber"
-                    value={formData.clinicalFindings.toothNumber}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          toothNumber: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pocketDepth">Pocket Depth</Label>
-                  <Input
-                    id="pocketDepth"
-                    value={formData.clinicalFindings.pocketDepth}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          pocketDepth: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="mobility">Mobility</Label>
-                  <Switch
-                    id="mobility"
-                    checked={formData.clinicalFindings.mobility}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          mobility: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="bleeding">Bleeding</Label>
-                  <Switch
-                    id="bleeding"
-                    checked={formData.clinicalFindings.bleeding}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          bleeding: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="sensitivity">Sensitivity</Label>
-                  <Switch
-                    id="sensitivity"
-                    checked={formData.clinicalFindings.sensitivity}
-                    onCheckedChange={(checked) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          sensitivity: checked,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div className="col-span-2 space-y-2">
-                  <Label htmlFor="clinicalNotes">Clinical Notes</Label>
-                  <Textarea
-                    id="clinicalNotes"
-                    value={formData.clinicalFindings.notes}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        clinicalFindings: {
-                          ...prev.clinicalFindings,
-                          notes: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
             <div className="flex justify-end space-x-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsOpen(false)}
-              >
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">Save changes</Button>
             </div>
           </form>
         </DialogContent>
