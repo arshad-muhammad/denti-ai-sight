@@ -433,6 +433,7 @@ const LoadingIndicator = ({ retryCount, retryDelay }: { retryCount: number; retr
 );
 
 const Analysis = () => {
+  const markedRadiographRef = useRef<HTMLDivElement>(null);
   const { caseId } = useParams<{ caseId: string }>();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -1603,10 +1604,12 @@ const Analysis = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <RadioGraphAnalysis
-                imageUrl={caseData.radiograph_url}
-                onMeasurementsChange={handleMeasurementsChange}
-              />
+              <div ref={markedRadiographRef}>
+                <RadioGraphAnalysis
+                  imageUrl={caseData.radiograph_url}
+                  onMeasurementsChange={handleMeasurementsChange}
+                />
+              </div>
             </CardContent>
           </Card>
         )}
@@ -1988,9 +1991,20 @@ const Analysis = () => {
                 onClick={async () => {
                   try {
                     setIsGeneratingReport(true);
+                    
                     // Wait for next render cycle to ensure canvas is updated
                     await new Promise(resolve => setTimeout(resolve, 100));
-                    await generatePDFReport(caseData, enhancedAnalysis.data);
+
+                    // Capture the marked radiograph
+                    let markedRadiographImage = null;
+                    if (markedRadiographRef.current) {
+                      const canvas = markedRadiographRef.current.querySelector('canvas');
+                      if (canvas) {
+                        markedRadiographImage = canvas.toDataURL('image/jpeg', 1.0);
+                      }
+                    }
+
+                    await generatePDFReport(caseData, enhancedAnalysis.data, markedRadiographImage);
                     toast({
                       title: "Success",
                       description: "Report has been downloaded successfully.",
