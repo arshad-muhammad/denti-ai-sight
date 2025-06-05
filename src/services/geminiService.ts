@@ -56,9 +56,9 @@ if (!GEMINI_API_KEY) {
 // Initialize the Gemini API
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY || '');
 
-// Get the model with configuration
+// Update model configuration to use the correct version
 const model = genAI.getGenerativeModel({
-  model: "gemini-pro",
+  model: "gemini-2.0-flash", // Using the latest stable model
   generationConfig: {
     temperature: 0.3,
     topK: 20,
@@ -277,7 +277,7 @@ export const getEnhancedAnalysis = async (input: GeminiAnalysisInput): Promise<G
     throw new Error('Gemini API key is not configured. Please add VITE_GEMINI_API_KEY to your environment variables.');
   }
 
-  if (!input || !input.diagnosis || !input.findings) {
+  if (!input || !input.findings) {
     throw new Error('Invalid input: Missing required fields');
   }
 
@@ -299,14 +299,33 @@ export const getEnhancedAnalysis = async (input: GeminiAnalysisInput): Promise<G
       // Track this request
       addRequest();
 
+      // Log the input data
+      console.log('Gemini API Input:', {
+        diagnosis: input.diagnosis,
+        findings: input.findings,
+        patientData: {
+          ...input.patientData,
+          medicalHistory: '(redacted for privacy)'
+        }
+      });
+
       // Construct the prompt
       const prompt = `You are a dental analysis AI assistant. Analyze the following dental case and provide a detailed assessment.
 Your response must be a valid JSON object that exactly matches the required structure.
 
 Input Data:
-Diagnosis: ${input.diagnosis}
+Diagnosis: ${input.diagnosis || 'Not provided'}
 Findings: ${JSON.stringify(input.findings, null, 2)}
-Patient Data: ${JSON.stringify(input.patientData, null, 2)}
+Patient Data: ${JSON.stringify({
+  age: input.patientData.age,
+  gender: input.patientData.gender,
+  medicalHistory: {
+    smoking: input.patientData.medicalHistory.smoking,
+    diabetes: input.patientData.medicalHistory.diabetes,
+    hypertension: input.patientData.medicalHistory.hypertension,
+    alcohol: input.patientData.medicalHistory.alcohol
+  }
+}, null, 2)}
 
 Instructions:
 1. Your entire response must be a single JSON object
@@ -353,54 +372,23 @@ Required JSON Structure:
     "preventiveMeasures": ["Preventive actions"],
     "lifestyle": ["Lifestyle recommendations"]
   }
-}
+}`;
 
-Example severity descriptions:
-- mild: "Early stage with minimal tissue involvement"
-- moderate: "Progressive condition requiring intervention"
-- severe: "Advanced stage with significant impact"
-
-Base your analysis on the provided diagnosis, findings, and patient data. Ensure all descriptions are clinically accurate and professionally written.`;
-
-      // Generate the analysis
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = await response.text();
-      
-      // Detailed logging
-      console.log('=== Gemini API Response Debug ===');
-      console.log('Response type:', typeof text);
-      console.log('Response length:', text.length);
-      console.log('Raw response:', text);
-      console.log('Response starts with:', text.substring(0, 100));
-      console.log('Response ends with:', text.substring(text.length - 100));
-      console.log('================================');
-      
-      // Clean and prepare the response text
-      const cleanedText = text
-        // Remove any markdown code blocks
-        .replace(/```json\n|\n```|```/g, '')
-        // Remove any leading/trailing whitespace
-        .trim()
-        // Remove any potential explanatory text before or after the JSON
-        .replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1')
-        // Ensure proper JSON structure
-        .replace(/,(\s*[}\]])/g, '$1');
-      
-      console.log('=== Cleaned Response Debug ===');
-      console.log('Cleaned type:', typeof cleanedText);
-      console.log('Cleaned length:', cleanedText.length);
-      console.log('Cleaned response:', cleanedText);
-      console.log('Cleaned starts with:', cleanedText.substring(0, 100));
-      console.log('Cleaned ends with:', cleanedText.substring(cleanedText.length - 100));
-      console.log('============================');
-      
-      // Parse and validate the response
       try {
-        if (!cleanedText) {
-          console.warn('Empty response, using fallback');
-          return getFallbackResponse(input, 0.5, ['Empty response from API']);
-        }
+        // Generate the analysis
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = await response.text();
+        
+        // Log the raw response for debugging
+        console.log('Gemini API Raw Response:', text);
+        
+        // Clean and parse the response
+        const cleanedText = text
+          .replace(/```json\n|\n```|```/g, '')
+          .trim()
+          .replace(/^[^{]*({[\s\S]*})[^}]*$/, '$1')
+          .replace(/,(\s*[}\]])/g, '$1');
         
         let parsedResult;
         try {
@@ -409,38 +397,29 @@ Base your analysis on the provided diagnosis, findings, and patient data. Ensure
           console.error('JSON parse error:', parseError);
           // Try to fix common JSON issues
           const fixedJson = cleanedText
-            // Fix missing quotes around property names
             .replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3')
-            // Fix single quotes
             .replace(/'/g, '"')
-            // Remove trailing commas
             .replace(/,(\s*[}\]])/g, '$1');
           
           try {
             parsedResult = JSON.parse(fixedJson);
           } catch (secondError) {
-            console.warn('Failed to fix JSON, using fallback');
+            console.error('Failed to fix JSON:', secondError);
             return getFallbackResponse(input, 0.5, ['Invalid JSON format']);
           }
         }
 
-        if (!parsedResult || typeof parsedResult !== 'object') {
-          console.warn('Invalid response structure, using fallback');
-          return getFallbackResponse(input, 0.5, ['Invalid response structure']);
-        }
-        
+        // Validate the parsed result
         try {
           validateResponse(parsedResult);
           return parsedResult;
         } catch (validationError) {
-          console.warn('Validation failed, using fallback:', validationError.message);
+          console.error('Validation error:', validationError);
           return getFallbackResponse(input, 0.5, ['Failed validation: ' + validationError.message]);
         }
       } catch (error) {
-        console.error('Error handling Gemini response:', error);
-        console.error('Raw response:', text);
-        console.error('Cleaned response:', cleanedText);
-        return getFallbackResponse(input, 0.5, ['Error: ' + error.message]);
+        console.error('Error in Gemini API call:', error);
+        throw error;
       }
     } catch (error) {
       console.error(`Attempt ${attempt + 1} failed:`, error);
@@ -448,7 +427,7 @@ Base your analysis on the provided diagnosis, findings, and patient data. Ensure
 
       // Check if it's a rate limit error
       if (error instanceof Error && error.message.includes('429')) {
-        const retryDelay = exponentialBackoff(attempt);
+        const retryDelay = Math.min(RATE_LIMIT.MIN_RETRY_DELAY * Math.pow(2, attempt), RATE_LIMIT.MAX_RETRY_DELAY);
         console.log(`Rate limit hit, waiting ${retryDelay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         continue;

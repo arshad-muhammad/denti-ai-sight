@@ -53,6 +53,7 @@ import { BoPAssessmentForm } from "@/components/BoPAssessmentForm";
 import { DiseaseProgressionRiskForm } from "@/components/DiseaseProgressionRiskForm";
 import { EnhancedAnalysis, Prognosis, Severity, PeriodontalStageResult } from '@/types/analysis';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { EnhancedAnalysisCard } from '@/components/EnhancedAnalysisCard';
 
 interface AnalysisResult {
   timestamp: string;
@@ -946,38 +947,21 @@ const Analysis = () => {
 
     if (isComplete && caseData?.status === 'completed') {
       const fetchEnhancedAnalysis = async () => {
-        if (!isSubscribed) return;
+        // Don't proceed if already loading or max retries reached
+        if (enhancedAnalysis.loading || enhancedAnalysis.retryCount >= 3) {
+          return;
+        }
         
         setEnhancedAnalysis(state => ({ 
           ...state, 
           loading: true, 
-          error: null,
-          retryCount: 0,
-          retryDelay: 0
+          error: null
         }));
 
         try {
-          // Safely parse medical history or use empty object as fallback
-          let medicalHistoryNotes = {};
-          if (caseData.patient_data.medicalHistory) {
-            try {
-              if (typeof caseData.patient_data.medicalHistory === 'string') {
-                // Only attempt to parse if it looks like JSON
-                if (caseData.patient_data.medicalHistory.trim().startsWith('{')) {
-                  medicalHistoryNotes = JSON.parse(caseData.patient_data.medicalHistory);
-                } else {
-                  // If it's a string but not JSON, use it as a notes field
-                  medicalHistoryNotes = { notes: caseData.patient_data.medicalHistory };
-                }
-              } else {
-                // If it's already an object, use it directly
-                medicalHistoryNotes = caseData.patient_data.medicalHistory;
-              }
-            } catch (parseError) {
-              console.warn('Failed to parse medical history, using as plain text:', parseError);
-              medicalHistoryNotes = { notes: caseData.patient_data.medicalHistory };
-            }
-          }
+          const medicalHistory = typeof caseData.patient_data.medicalHistory === 'string'
+            ? { notes: caseData.patient_data.medicalHistory }
+            : caseData.patient_data.medicalHistory || {};
 
           const result = await getEnhancedAnalysis({
             diagnosis: caseData.analysis_results?.diagnosis || '',
@@ -985,7 +969,11 @@ const Analysis = () => {
             patientData: {
               age: caseData.patient_data.age || '',
               gender: caseData.patient_data.gender || '',
-              medicalHistory: medicalHistoryNotes
+              medicalHistory: {
+                ...medicalHistory,
+                smoking: caseData.patient_data.smoking || false,
+                diabetes: caseData.patient_data.diabetes || false
+              }
             }
           });
 
@@ -999,29 +987,21 @@ const Analysis = () => {
             });
           }
         } catch (error) {
-          console.error('Enhanced analysis error:', error);
+          if (!isSubscribed) return;
+
           const isRateLimit = error instanceof Error && error.message.includes('429');
           
-          if (isSubscribed) {
-            // Get current state to determine retry behavior
-            const currentState = enhancedAnalysis;
-            const newRetryCount = isRateLimit ? currentState.retryCount + 1 : 0;
-            const newRetryDelay = isRateLimit ? 24 : 0;
-
-            setEnhancedAnalysis({
-              ...currentState,
+          setEnhancedAnalysis(state => ({
+            ...state,
               loading: false,
               error: error as Error,
-              retryCount: newRetryCount,
-              retryDelay: newRetryDelay
-            });
+            retryCount: isRateLimit ? state.retryCount + 1 : state.retryCount,
+            retryDelay: isRateLimit && state.retryCount < 2 ? 24 : 0
+          }));
 
-            // If it's a rate limit error and we haven't exceeded retries, try again after delay
-            if (isRateLimit && newRetryCount < 3) {
-              setTimeout(() => {
-                fetchEnhancedAnalysis();
-              }, newRetryDelay * 1000);
-            }
+          // Only schedule retry if we haven't hit max retries
+          if (isRateLimit && enhancedAnalysis.retryCount < 2) {
+            setTimeout(fetchEnhancedAnalysis, 24000); // 24 seconds
           }
         }
       };
@@ -1032,71 +1012,18 @@ const Analysis = () => {
     return () => {
       isSubscribed = false;
     };
-  }, [isComplete, caseData, enhancedAnalysis]);
+  }, [isComplete, caseData]);
 
-  // Update retry function to handle rate limiting
-  const retryEnhancedAnalysis = useCallback(async () => {
+  // Manual retry function
+  const retryEnhancedAnalysis = useCallback(() => {
     setEnhancedAnalysis(state => ({ 
       ...state, 
-      loading: true, 
-      error: null,
-      retryCount: 0,
-      retryDelay: 0
-    }));
-
-    try {
-      // Safely parse medical history or use empty object as fallback
-      let medicalHistoryNotes = {};
-      if (caseData?.patient_data.medicalHistory) {
-        try {
-          if (typeof caseData.patient_data.medicalHistory === 'string') {
-            // Only attempt to parse if it looks like JSON
-            if (caseData.patient_data.medicalHistory.trim().startsWith('{')) {
-              medicalHistoryNotes = JSON.parse(caseData.patient_data.medicalHistory);
-            } else {
-              // If it's a string but not JSON, use it as a notes field
-              medicalHistoryNotes = { notes: caseData.patient_data.medicalHistory };
-            }
-          } else {
-            // If it's already an object, use it directly
-            medicalHistoryNotes = caseData.patient_data.medicalHistory;
-          }
-        } catch (parseError) {
-          console.warn('Failed to parse medical history in retry, using as plain text:', parseError);
-          medicalHistoryNotes = { notes: caseData.patient_data.medicalHistory };
-        }
-      }
-
-      const result = await getEnhancedAnalysis({
-        diagnosis: caseData?.analysis_results?.diagnosis || '',
-        findings: caseData?.analysis_results?.findings || {},
-        patientData: {
-          age: caseData?.patient_data.age || '',
-          gender: caseData?.patient_data.gender || '',
-          medicalHistory: medicalHistoryNotes
-        }
-      });
-
-      setEnhancedAnalysis({
         loading: false,
-        data: result,
         error: null,
         retryCount: 0,
         retryDelay: 0
-      });
-    } catch (error) {
-      console.error('Enhanced analysis retry error:', error);
-      const isRateLimit = error instanceof Error && error.message.includes('429');
-      
-      setEnhancedAnalysis(currentState => ({
-        ...currentState,
-        loading: false,
-        error: error as Error,
-        retryCount: isRateLimit ? currentState.retryCount + 1 : 0,
-        retryDelay: isRateLimit ? 24 : 0
-      }));
-    }
-  }, [caseData]);
+    }));
+  }, []);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -1476,12 +1403,9 @@ const Analysis = () => {
 
   // Update the Detailed Findings Card to use the new render function
   const renderAnalysisResults = () => {
-    if (!caseData?.analysis_results) {
-      return null;
-    }
-
     return (
       <div className="space-y-6">
+
         {/* Primary Diagnosis Card */}
         <Card>
           <CardHeader>
@@ -1489,99 +1413,209 @@ const Analysis = () => {
               <Brain className="w-5 h-5" />
               Primary Diagnosis & Measurements
             </CardTitle>
+            <CardDescription>
+              AI-powered analysis results and clinical measurements
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Disease Type */}
               <div className="p-4 bg-muted rounded-lg">
                 <h4 className="text-sm font-medium text-muted-foreground mb-1">Disease Type</h4>
-                <p className="text-lg font-semibold text-foreground">{caseData.analysis_results.diagnosis || 'Not available'}</p>
+                <div className="space-y-2">
+                  {caseData.analysis_results?.diagnosis ? (
+                    <>
+                      {enhancedAnalysis.data?.detailedFindings.primaryCondition?.title && (
+                        <p className="text-sm text-muted-foreground">
+                          {enhancedAnalysis.data.detailedFindings.primaryCondition.title}
+                        </p>
+                      )}
+                      <p className="text-lg font-semibold text-foreground">
+                        {caseData.analysis_results.diagnosis}
+                      </p>
+                      {caseData.analysis_results?.confidence && (
+                        <Badge variant="outline">
+                          Confidence: {Math.round(caseData.analysis_results.confidence * 100)}%
+                        </Badge>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      {enhancedAnalysis.loading ? (
+                        <div className="flex items-center space-x-2">
+                          {/* <Loader2 className="h-4 w-4 animate-spin" /> */}
+                          <span className="text-sm text-muted-foreground">
+                            {enhancedAnalysis.data?.detailedFindings.primaryCondition?.description.split('.')[0] || 'Check Enhanced Analysis Results Below..'}
+                          </span>
+                        </div>
+                      ) : enhancedAnalysis.error ? (
+                        <div className="space-y-2">
+                          <p className="text-sm text-red-500">Failed to get diagnosis</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={retryEnhancedAnalysis}
+                            className="w-full"
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Retry Analysis
+                          </Button>
+                        </div>
+                      ) : enhancedAnalysis.data?.detailedFindings.primaryCondition ? (
+                        <>
+                          <p className="text-lg font-semibold text-foreground">
+                            {enhancedAnalysis.data.detailedFindings.primaryCondition.description}
+                          </p>
+                          <Badge variant="outline" className={getSeverityColor(enhancedAnalysis.data.detailedFindings.primaryCondition.severity)}>
+                            {enhancedAnalysis.data.detailedFindings.primaryCondition.severity.toUpperCase()}
+                          </Badge>
+                          {enhancedAnalysis.data.detailedFindings.primaryCondition.implications && (
+                            <div className="mt-2 space-y-1">
+                              {enhancedAnalysis.data.detailedFindings.primaryCondition.implications.map((implication, index) => (
+                                <p key={index} className="text-sm text-muted-foreground">
+                                  • {implication}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center p-4">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={retryEnhancedAnalysis}
+                          >
+                            <Brain className="w-4 h-4 mr-2" />
+                            Get AI Diagnosis
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* Bone Loss */}
               <div className="p-4 bg-muted rounded-lg">
-                <h4 className="text-sm font-medium text-muted-foreground mb-1">Bone Loss</h4>
+                <h4 className="text-sm font-medium text-muted-foreground mb-1">Bone Loss Assessment</h4>
+                <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-semibold text-foreground">
-                    {caseData.analysis_results.findings?.boneLoss?.percentage ? 
-                      `${caseData.analysis_results.findings?.boneLoss?.percentage.toFixed(1)}%` : 
-                      'Not available'
-                    }
+                      {caseData.analysis_results?.findings?.boneLoss?.percentage 
+                        ? `${caseData.analysis_results.findings.boneLoss.percentage.toFixed(1)}%` 
+                        : 'Not available'}
                   </span>
-                  {caseData.analysis_results.severity && (
-                    <Badge className={getSeverityColor(caseData.analysis_results.severity)}>
-                      {caseData.analysis_results.severity.toUpperCase()}
+                    {caseData.analysis_results?.findings?.boneLoss?.severity && (
+                      <Badge className={getSeverityColor(caseData.analysis_results.findings.boneLoss.severity)}>
+                        {caseData.analysis_results.findings.boneLoss.severity.toUpperCase()}
                     </Badge>
+                    )}
+                  </div>
+                  {caseData.analysis_results?.findings?.boneLoss?.regions && 
+                   caseData.analysis_results.findings.boneLoss.regions.length > 0 && (
+                    <div className="text-sm text-muted-foreground">
+                      Affected regions: {caseData.analysis_results.findings.boneLoss.regions.join(', ')}
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* Periodontal Stage */}
-              {caseData.analysis_results.findings?.boneLoss?.percentage && (
                 <div className="p-4 bg-muted rounded-lg col-span-full">
                   <h4 className="text-sm font-medium text-muted-foreground mb-2">Periodontal Stage</h4>
-                  <div className="flex flex-col gap-2">
+                <div className="space-y-3">
                     <div className="flex items-center justify-between">
+                    <div className="space-y-1">
                       <span className="text-lg font-semibold text-foreground">
-                        {getPeriodontalStage(caseData.analysis_results.findings?.boneLoss?.percentage).stage}
+                        {caseData.analysis_results?.periodontal_stage?.stage || 'Not determined'}
                       </span>
-                      <Badge variant="outline" className={getPrognosisColor(caseData.analysis_results.periodontal_stage?.prognosis)}>
-                        Prognosis: {caseData.analysis_results.periodontal_stage?.prognosis}
-                      </Badge>
-                    </div>
-                    {caseData.analysis_results.periodontal_stage && (
-                      <p className="text-sm text-muted-foreground mt-2">
+                      {caseData.analysis_results?.periodontal_stage?.description && (
+                        <p className="text-sm text-muted-foreground">
                         {caseData.analysis_results.periodontal_stage.description}
                       </p>
                     )}
                   </div>
-                </div>
-              )}
-
-              {/* Patient Information */}
-              <div className="p-4 bg-muted rounded-lg col-span-full">
-                <h4 className="text-sm font-medium text-muted-foreground mb-2">Patient Information</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Name</span>
-                    <p className="font-medium">{caseData.patient_data.fullName}</p>
+                    {caseData.analysis_results?.periodontal_stage?.prognosis && (
+                      <Badge 
+                        variant="outline" 
+                        className={getPrognosisColor(caseData.analysis_results.periodontal_stage.prognosis)}
+                      >
+                        Prognosis: {caseData.analysis_results.periodontal_stage.prognosis}
+                      </Badge>
+                    )}
                   </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Age</span>
-                    <p className="font-medium">{caseData.patient_data.age} years</p>
+                  {caseData.analysis_results?.findings?.boneLoss?.measurements && 
+                   caseData.analysis_results.findings.boneLoss.measurements.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {caseData.analysis_results.findings.boneLoss.measurements.map((measurement, index) => (
+                        <div key={index} className="flex justify-between items-center text-sm p-2 bg-background rounded">
+                          <span className="text-muted-foreground">{measurement.type}:</span>
+                          <span className="font-medium">{measurement.value.toFixed(1)} mm</span>
                   </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Gender</span>
-                    <p className="font-medium">{caseData.patient_data.gender}</p>
+                      ))}
                   </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Contact</span>
-                    <p className="font-medium">{caseData.patient_data.phone}</p>
-                  </div>
+                  )}
                 </div>
               </div>
 
-              {/* Medical History */}
+              {/* Risk Factors */}
               <div className="p-4 bg-muted rounded-lg col-span-full">
-                <h4 className="text-sm font-medium text-muted-foreground mb-2">Medical History</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm text-muted-foreground">Smoking</span>
-                    <p className={`font-medium ${caseData.patient_data.smoking ? 'text-red-500' : 'text-green-500'}`}>
-                      {caseData.patient_data.smoking ? 'Yes' : 'No'}
-                    </p>
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">Risk Factors</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="text-center p-2 bg-background rounded-lg">
+                    <span className="text-sm text-muted-foreground block mb-1">Smoking</span>
+                    <Badge variant={caseData.patient_data.smoking ? "destructive" : "secondary"}>
+                      {caseData.patient_data.smoking ? "Yes" : "No"}
+                    </Badge>
                   </div>
-                  <div>
-                    <span className="text-sm text-muted-foreground">Diabetes</span>
-                    <p className={`font-medium ${caseData.patient_data.diabetes ? 'text-red-500' : 'text-green-500'}`}>
-                      {caseData.patient_data.diabetes ? 'Yes' : 'No'}
-                    </p>
+                  <div className="text-center p-2 bg-background rounded-lg">
+                    <span className="text-sm text-muted-foreground block mb-1">Diabetes</span>
+                    <Badge variant={caseData.patient_data.diabetes ? "destructive" : "secondary"}>
+                      {caseData.patient_data.diabetes ? "Yes" : "No"}
+                    </Badge>
+                  </div>
+                  <div className="text-center p-2 bg-background rounded-lg">
+                    <span className="text-sm text-muted-foreground block mb-1">BoP Score</span>
+                    <Badge variant={caseData.clinical_data?.bopScore > 30 ? "destructive" : "secondary"}>
+                      {caseData.clinical_data?.bopScore?.toFixed(1) || 0}%
+                    </Badge>
+                  </div>
+                  <div className="text-center p-2 bg-background rounded-lg">
+                    <span className="text-sm text-muted-foreground block mb-1">Age Factor</span>
+                    <Badge variant={parseInt(caseData.patient_data.age) > 60 ? "destructive" : "secondary"}>
+                      {caseData.patient_data.age || 'N/A'}
+                    </Badge>
                   </div>
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Existing Annotated Radiograph section */}
+        {caseData?.radiograph_url && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Camera className="h-5 w-5" />
+                Annotated Radiograph
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RadioGraphAnalysis
+                imageUrl={caseData.radiograph_url}
+                onMeasurementsChange={handleMeasurementsChange}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Add Enhanced Analysis Card */}
+        {enhancedAnalysis.data && (
+          <EnhancedAnalysisCard analysis={enhancedAnalysis.data} />
+        )}
+
 
         {/* Red Flag Alerts Card */}
         {(caseData.clinical_data.redFlags?.hematologicDisorder ||
@@ -1659,33 +1693,6 @@ const Analysis = () => {
             </CardContent>
           </Card>
         )}
-
-        {/* Annotated Radiograph Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Camera className="w-5 h-5" />
-              Annotated Radiograph
-            </CardTitle>
-            <CardDescription>
-              Interactive bone loss measurement and staging
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {caseData.radiograph_url ? (
-              <div className="space-y-6">
-                <RadioGraphAnalysis
-                  imageUrl={caseData.radiograph_url}
-                  onMeasurementsChange={handleMeasurementsChange}
-                />
-              </div>
-            ) : (
-              <div className="text-center p-6 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No radiograph available</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Bleeding on Probing (BoP) Assessment */}
         <Card>
@@ -1829,196 +1836,7 @@ const Analysis = () => {
           </CardContent>
         </Card>
 
-        {/* Detailed Findings Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="w-5 h-5" />
-              Detailed Findings
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {renderDetailedFindings()}
-          </CardContent>
-        </Card>
-
-        {/* Prognosis and Treatment Plan Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="w-5 h-5" />
-              Prognosis & Treatment Plan
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {enhancedAnalysis.loading ? (
-              <div className="flex items-center justify-center p-4">
-                <RefreshCw className="w-6 h-6 animate-spin text-medical-600" />
-              </div>
-            ) : enhancedAnalysis.data ? (
-              <>
-                {/* Prognosis Section */}
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-lg mb-2">Prognosis</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-lg font-semibold ${getPrognosisColor(enhancedAnalysis.data.refinedPrognosis.status)}`}>
-                          {enhancedAnalysis.data.refinedPrognosis.status}
-                        </span>
-                        {caseData.clinical_data.additionalNotes && (
-                          <Badge variant="outline">Additional Notes: {caseData.clinical_data.additionalNotes}</Badge>
-                        )}
-                      </div>
-                      <p className="text-gray-700">{enhancedAnalysis.data.refinedPrognosis.explanation}</p>
-                      <div>
-                        <h5 className="font-medium mb-2">Risk Factors:</h5>
-                        <ul className="list-disc list-inside space-y-1">
-                          {enhancedAnalysis.data.refinedPrognosis.riskFactors.map((factor, index) => (
-                            <li key={index} className="text-gray-700">{factor}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <h5 className="font-medium mb-2">Long-term Outlook:</h5>
-                        <p className="text-gray-700">{enhancedAnalysis.data.refinedPrognosis.longTermOutlook}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Treatment Plan Section */}
-                  <div>
-                    <h4 className="font-medium text-lg mb-2">Comprehensive Treatment Plan</h4>
-                    <div className="space-y-4">
-                      {/* Immediate Actions */}
-                      <div className="bg-red-50 p-4 rounded-lg">
-                        <h5 className="font-medium text-red-800 mb-2">Immediate Actions</h5>
-                        <ul className="space-y-2">
-                          {enhancedAnalysis.data.detailedTreatmentPlan.immediate.map((step, index) => (
-                            <li key={index} className="flex items-start gap-2">
-                              <AlertCircle className="w-4 h-4 text-red-500 mt-1" />
-                              <span className="text-gray-700">{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Short-term Plan */}
-                      <div className="bg-yellow-50 p-4 rounded-lg">
-                        <h5 className="font-medium text-yellow-800 mb-2">Short-term Plan</h5>
-                        <ul className="space-y-2">
-                          {enhancedAnalysis.data.detailedTreatmentPlan.shortTerm.map((step, index) => (
-                            <li key={index} className="flex items-start gap-2">
-                              <Clock className="w-4 h-4 text-yellow-500 mt-1" />
-                              <span className="text-gray-700">{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Long-term Plan */}
-                      <div className="bg-green-50 p-4 rounded-lg">
-                        <h5 className="font-medium text-green-800 mb-2">Long-term Plan</h5>
-                        <ul className="space-y-2">
-                          {enhancedAnalysis.data.detailedTreatmentPlan.longTerm.map((step, index) => (
-                            <li key={index} className="flex items-start gap-2">
-                              <Target className="w-4 h-4 text-green-500 mt-1" />
-                              <span className="text-gray-700">{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Preventive Measures */}
-                      <div className="bg-blue-50 p-4 rounded-lg">
-                        <h5 className="font-medium text-blue-800 mb-2">Preventive Measures</h5>
-                        <ul className="space-y-2">
-                          {enhancedAnalysis.data.detailedTreatmentPlan.preventiveMeasures.map((measure, index) => (
-                            <li key={index} className="flex items-start gap-2">
-                              <Shield className="w-4 h-4 text-blue-500 mt-1" />
-                              <span className="text-gray-700">{measure}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Lifestyle Recommendations */}
-                      <div className="bg-purple-50 p-4 rounded-lg">
-                        <h5 className="font-medium text-purple-800 mb-2">Lifestyle Recommendations</h5>
-                        <ul className="space-y-2">
-                          {enhancedAnalysis.data.detailedTreatmentPlan.lifestyle.map((rec, index) => (
-                            <li key={index} className="flex items-start gap-2">
-                              <Heart className="w-4 h-4 text-purple-500 mt-1" />
-                              <span className="text-gray-700">{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <h4 className="font-medium mb-2">Prognosis</h4>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-lg font-semibold ${getPrognosisColor(getPeriodontalStage(caseData.analysis_results?.findings?.boneLoss?.percentage || 0).prognosis)}`}>
-                      {getPeriodontalStage(caseData.analysis_results?.findings?.boneLoss?.percentage || 0).prognosis}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-medium mb-2">Treatment Plan</h4>
-                  {caseData.clinical_data.additionalNotes && (
-                    <p className="text-gray-500">{caseData.clinical_data.additionalNotes}</p>
-                  )}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    );
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <PageHeader 
-          title="Case Analysis"
-          description="Loading case data..."
-        />
-        <div className="container py-6">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-center">
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                <span className="ml-2">Loading case data...</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  if (!caseData) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Case Not Found</h2>
-              <p className="text-muted-foreground mb-4">The case you're looking for doesn't exist or you don't have permission to view it.</p>
-              <Button onClick={() => navigate("/dashboard")}>
-                Return to Dashboard
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+       
       </div>
     );
   }

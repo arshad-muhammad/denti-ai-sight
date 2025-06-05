@@ -123,8 +123,17 @@ interface EnhancedAnalysis {
 
 // Define type for jsPDF instance with AutoTable
 interface jsPDFWithAutoTable extends jsPDF {
+  autoTable: (options: UserOptions) => void;
   lastAutoTable: {
     finalY: number;
+  };
+  internal: {
+    pageSize: {
+      width: number;
+      height: number;
+      getWidth: () => number;
+      getHeight: () => number;
+    };
   };
 }
 
@@ -316,132 +325,322 @@ const drawAnnotations = (
   doc.restoreGraphicsState();
 };
 
-// Helper function to check if we need a new page
-const checkAndAddNewPage = (doc: jsPDFWithAutoTable, yPos: number, minSpaceNeeded: number = 40) => {
-  const pageHeight = doc.internal.pageSize.getHeight();
-  if (yPos + minSpaceNeeded > pageHeight - 20) {
+// Helper function to update currentY after autoTable
+const updateCurrentY = (doc: jsPDFWithAutoTable): number => {
+  return doc.lastAutoTable.finalY + 10;
+};
+
+// Helper function to check and add new page if needed
+const checkAndAddNewPage = (doc: jsPDFWithAutoTable, currentY: number, minSpaceNeeded: number = 40): number => {
+  if (currentY > doc.internal.pageSize.getHeight() - minSpaceNeeded) {
     doc.addPage();
-    return 20; // Reset yPos to top of new page with margin
+    return 20;
   }
-  return yPos;
+  return currentY;
 };
 
 export const generatePDFReport = async (
   caseData: Case,
   enhancedAnalysis: EnhancedAnalysis | null
 ) => {
-  // Debug logging for raw data
-  console.log('Raw Analysis Results:', {
-    analysisResults: caseData.analysis_results,
-    radiographUrl: caseData.radiograph_url
-  });
+  console.log('Starting PDF generation with data:', { caseData, enhancedAnalysis });
+  try {
+    console.log('Starting PDF generation...');
+    const doc = new jsPDF() as jsPDFWithAutoTable;
+    let currentY = 10;
 
-  // Debug logging
-  console.log('Report Generation - Case Data:', {
-    hasAnalysisResults: !!caseData.analysis_results,
-    findings: caseData.analysis_results?.findings,
-    severity: caseData.analysis_results?.severity
-  });
+    // Add header with logo and clinic info
+    doc.setFontSize(20);
+    doc.setTextColor(0, 102, 204);
+    doc.text('PerioVision AI Report', 105, currentY, { align: 'center' });
+    currentY += 15;
 
-  // Initialize PDF document
-  const doc = new jsPDF() as jsPDFWithAutoTable;
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 20;
-  let yPos = 20;
+    // Add report date
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Report Generated: ${format(new Date(), 'PPpp')}`, 105, currentY, { align: 'center' });
+    currentY += 10;
 
-  // Helper function for text wrapping
-  const addWrappedText = (text: string, x: number, y: number, maxWidth: number) => {
-    const lines = doc.splitTextToSize(text, maxWidth);
-    y = checkAndAddNewPage(doc, y, lines.length * 7);
-    doc.text(lines, x, y);
-    return y + (lines.length * 7);
-  };
-
-  // Add Header
-  doc.setFontSize(20);
-  doc.setTextColor(0, 83, 155);
-  doc.text("Dental Analysis Report", margin, yPos);
-  yPos += 15;
-
-  // Add Report Date
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Report Generated: ${format(new Date(), 'PPpp')}`, margin, yPos);
-  yPos += 10;
-
-  // Add Patient Information
-  doc.setFontSize(14);
-  doc.setTextColor(0, 83, 155);
-  doc.text("Patient Information", margin, yPos);
-  yPos += 10;
-
-  doc.setFontSize(10);
-  doc.setTextColor(60);
-  yPos = addWrappedText(`Name: ${caseData.patient_data.fullName}`, margin, yPos, pageWidth - 2 * margin);
-  yPos = addWrappedText(`Age: ${caseData.patient_data.age}`, margin, yPos, pageWidth - 2 * margin);
-  yPos = addWrappedText(`Gender: ${caseData.patient_data.gender}`, margin, yPos, pageWidth - 2 * margin);
-  yPos += 10;
-
-  // Add Analysis Results
-  if (caseData.analysis_results) {
+    // Patient Information Section
     doc.setFontSize(14);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Analysis Results", margin, yPos);
-    yPos += 10;
+    doc.setTextColor(0, 0, 0);
+    doc.text('Patient Information', 14, currentY);
+    currentY += 5;
 
-    doc.setFontSize(10);
-    doc.setTextColor(60);
-    yPos = addWrappedText(`Diagnosis: ${caseData.analysis_results.diagnosis}`, margin, yPos, pageWidth - 2 * margin);
-    yPos = addWrappedText(`Confidence: ${caseData.analysis_results.confidence}%`, margin, yPos, pageWidth - 2 * margin);
-    yPos = addWrappedText(`Severity: ${caseData.analysis_results.severity}`, margin, yPos, pageWidth - 2 * margin);
-    yPos += 10;
+    const patientInfo = [
+      ['Full Name', caseData.patient_data.fullName],
+      ['Age', caseData.patient_data.age],
+      ['Gender', caseData.patient_data.gender],
+      ['Phone', caseData.patient_data.phone],
+      ['Email', caseData.patient_data.email],
+      ['Address', caseData.patient_data.address]
+    ];
 
-    // Add Findings
-    if (caseData.analysis_results.findings?.pathologies?.length) {
-      doc.setFontSize(12);
-      doc.setTextColor(0, 83, 155);
-      doc.text("Pathological Findings", margin, yPos);
-      yPos += 10;
-
-      doc.setFontSize(10);
-      doc.setTextColor(60);
-      caseData.analysis_results.findings.pathologies.forEach(finding => {
-        yPos = addWrappedText(`• ${finding.type} (${finding.severity}) - ${finding.location}`, margin, yPos, pageWidth - 2 * margin);
-      });
-      yPos += 10;
-    }
-  }
-
-  // Add Enhanced Analysis if available
-  if (enhancedAnalysis) {
-    doc.setFontSize(14);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Detailed Analysis", margin, yPos);
-    yPos += 10;
-
-    doc.setFontSize(12);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Primary Condition", margin, yPos);
-    yPos += 10;
-
-    doc.setFontSize(10);
-    doc.setTextColor(60);
-    yPos = addWrappedText(enhancedAnalysis.detailedFindings.primaryCondition.description, margin, yPos, pageWidth - 2 * margin);
-    yPos += 10;
-
-    // Add Treatment Plan
-    doc.setFontSize(12);
-    doc.setTextColor(0, 83, 155);
-    doc.text("Treatment Plan", margin, yPos);
-    yPos += 10;
-
-    doc.setFontSize(10);
-    doc.setTextColor(60);
-    enhancedAnalysis.detailedTreatmentPlan.immediate.forEach(step => {
-      yPos = addWrappedText(`• ${step}`, margin, yPos, pageWidth - 2 * margin);
+    autoTable(doc, {
+      startY: currentY,
+      head: [],
+      body: patientInfo,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 40 },
+        1: { cellWidth: 'auto' }
+      }
     });
-  }
+    currentY = updateCurrentY(doc);
 
-  // Save the PDF
-  doc.save(`dental-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    // Medical History Section
+    doc.setFontSize(14);
+    doc.text('Medical History', 14, currentY);
+    currentY += 5;
+
+    const medicalHistory = [
+      ['Smoking', caseData.patient_data.smoking ? 'Yes' : 'No'],
+      ['Alcohol', caseData.patient_data.alcohol ? 'Yes' : 'No'],
+      ['Diabetes', caseData.patient_data.diabetes ? 'Yes' : 'No'],
+      ['Hypertension', caseData.patient_data.hypertension ? 'Yes' : 'No'],
+      ['Chief Complaint', caseData.patient_data.chiefComplaint || 'None reported'],
+      ['Additional Notes', caseData.patient_data.medicalHistory || 'None']
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [],
+      body: medicalHistory,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 40 },
+        1: { cellWidth: 'auto' }
+      }
+    });
+    currentY = updateCurrentY(doc);
+
+    // Primary Analysis Results
+    doc.setFontSize(14);
+    doc.text('Primary Analysis Results', 14, currentY);
+    currentY += 5;
+
+    const primaryAnalysis = [
+      ['Diagnosis', caseData.analysis_results?.diagnosis || 'Not available'],
+      ['Confidence', caseData.analysis_results?.confidence ? `${Math.round(caseData.analysis_results.confidence * 100)}%` : 'N/A'],
+      ['Severity', caseData.analysis_results?.severity?.toUpperCase() || 'Not determined'],
+      ['Bone Loss', caseData.analysis_results?.findings?.boneLoss?.percentage 
+        ? `${caseData.analysis_results.findings.boneLoss.percentage.toFixed(1)}% (${caseData.analysis_results.findings.boneLoss.severity})` 
+        : 'Not measured'],
+      ['Affected Regions', caseData.analysis_results?.findings?.boneLoss?.regions?.join(', ') || 'None specified'],
+      ['Periodontal Stage', `${caseData.analysis_results?.periodontal_stage?.stage || 'Not determined'}`],
+      ['Stage Description', caseData.analysis_results?.periodontal_stage?.description || 'Not available']
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [],
+      body: primaryAnalysis,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 40 },
+        1: { cellWidth: 'auto' }
+      }
+    });
+    currentY = updateCurrentY(doc);
+
+    // Enhanced Analysis Section (if available)
+    if (enhancedAnalysis) {
+      // Check if we need a new page
+      if (currentY > doc.internal.pageSize.height - 60) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.text('Enhanced Analysis', 14, currentY);
+      currentY += 5;
+
+      // Primary Condition Details
+      const primaryCondition = [
+        ['Description', enhancedAnalysis.detailedFindings.primaryCondition.description],
+        ['Severity', enhancedAnalysis.detailedFindings.primaryCondition.severity.toUpperCase()],
+        ['Clinical Implications', enhancedAnalysis.detailedFindings.primaryCondition.implications.join('\n')]
+      ];
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Primary Condition Details']],
+        body: primaryCondition,
+        theme: 'striped',
+        styles: { fontSize: 10, cellPadding: 2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 40 },
+          1: { cellWidth: 'auto' }
+        }
+      });
+      currentY = updateCurrentY(doc);
+
+      // Risk Assessment
+      if (currentY > doc.internal.pageSize.height - 60) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      const riskAssessment = [
+        ['Current Risk', enhancedAnalysis.detailedFindings.riskAssessment.current],
+        ['Future Projection', enhancedAnalysis.detailedFindings.riskAssessment.future],
+        ['Mitigation Strategies', enhancedAnalysis.detailedFindings.riskAssessment.mitigationStrategies.join('\n')]
+      ];
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Risk Assessment']],
+        body: riskAssessment,
+        theme: 'striped',
+        styles: { fontSize: 10, cellPadding: 2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 40 },
+          1: { cellWidth: 'auto' }
+        }
+      });
+      currentY = updateCurrentY(doc);
+
+      // Secondary Findings
+      if (enhancedAnalysis.detailedFindings.secondaryFindings.length > 0) {
+        if (currentY > doc.internal.pageSize.height - 60) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        const secondaryFindings = enhancedAnalysis.detailedFindings.secondaryFindings.map(finding => [
+          finding.condition,
+          finding.description,
+          finding.severity.toUpperCase(),
+          finding.implications.join('\n')
+        ]);
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [['Condition', 'Description', 'Severity', 'Implications']],
+          body: secondaryFindings,
+          theme: 'striped',
+          styles: { fontSize: 10, cellPadding: 2 }
+        });
+        currentY = updateCurrentY(doc);
+      }
+
+      // Treatment Plan
+      if (currentY > doc.internal.pageSize.height - 60) {
+        doc.addPage();
+        currentY = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.text('Treatment Plan', 14, currentY);
+      currentY += 5;
+
+      const treatmentPlan = [
+        ['Immediate Actions', enhancedAnalysis.detailedTreatmentPlan.immediate.join('\n')],
+        ['Short-term Plan', enhancedAnalysis.detailedTreatmentPlan.shortTerm.join('\n')],
+        ['Long-term Plan', enhancedAnalysis.detailedTreatmentPlan.longTerm.join('\n')],
+        ['Preventive Measures', enhancedAnalysis.detailedTreatmentPlan.preventiveMeasures.join('\n')],
+        ['Lifestyle Recommendations', enhancedAnalysis.detailedTreatmentPlan.lifestyle.join('\n')]
+      ];
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [],
+        body: treatmentPlan,
+        theme: 'striped',
+        styles: { fontSize: 10, cellPadding: 2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 40 },
+          1: { cellWidth: 'auto' }
+        }
+      });
+      currentY = updateCurrentY(doc);
+    }
+
+    // Clinical Measurements
+    if (currentY > doc.internal.pageSize.height - 60) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    doc.setFontSize(14);
+    doc.text('Clinical Measurements', 14, currentY);
+    currentY += 5;
+
+    const clinicalData = [
+      ['BoP Score', caseData.clinical_data?.bopScore ? `${caseData.clinical_data.bopScore.toFixed(1)}%` : 'Not measured'],
+      ['Total Sites', caseData.clinical_data?.totalSites?.toString() || 'Not recorded'],
+      ['Bleeding Sites', caseData.clinical_data?.bleedingSites?.toString() || 'Not recorded'],
+      ['Deep Pocket Sites', caseData.clinical_data?.deepPocketSites?.toString() || 'Not recorded'],
+      ['Average Pocket Depth', caseData.clinical_data?.averagePocketDepth ? `${caseData.clinical_data.averagePocketDepth.toFixed(1)} mm` : 'Not measured'],
+      ['Clinical Attachment Loss', caseData.clinical_data?.clinicalAttachmentLoss ? `${caseData.clinical_data.clinicalAttachmentLoss.toFixed(1)} mm` : 'Not measured']
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [],
+      body: clinicalData,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 40 },
+        1: { cellWidth: 'auto' }
+      }
+    });
+
+    // Add radiograph if available
+    if (caseData.radiograph_url) {
+      doc.addPage();
+      try {
+        const img = await loadAndVerifyImage(caseData.radiograph_url);
+        
+        // Calculate dimensions to fit the page while maintaining aspect ratio
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 20;
+        const maxWidth = pageWidth - (2 * margin);
+        const maxHeight = pageHeight - (2 * margin);
+        
+        let imgWidth = img.width;
+        let imgHeight = img.height;
+        
+        // Scale down if necessary
+        if (imgWidth > maxWidth) {
+          const ratio = maxWidth / imgWidth;
+          imgWidth = maxWidth;
+          imgHeight = imgHeight * ratio;
+        }
+        
+        if (imgHeight > maxHeight) {
+          const ratio = maxHeight / imgHeight;
+          imgHeight = maxHeight;
+          imgWidth = imgWidth * ratio;
+        }
+        
+        // Center the image
+        const x = (pageWidth - imgWidth) / 2;
+        const y = (pageHeight - imgHeight) / 2;
+        
+        doc.addImage(img, 'JPEG', x, y, imgWidth, imgHeight);
+        
+        // Add caption
+        doc.setFontSize(12);
+        doc.text('Dental Radiograph', pageWidth / 2, y + imgHeight + 10, { align: 'center' });
+        
+      } catch (error) {
+        console.error('Error adding radiograph to PDF:', error);
+        doc.text('Error: Could not load radiograph image', 14, currentY);
+      }
+    }
+
+    // Save the PDF
+    doc.save(`PerioVision_Report_${caseData.id}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    console.log('PDF generation completed successfully');
+
+  } catch (error) {
+    console.error('Error generating PDF report:', error);
+    throw error;
+  }
 }; 
