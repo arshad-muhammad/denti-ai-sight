@@ -338,17 +338,17 @@ export const generatePDFReport = async (
 ) => {
   try {
     console.log('Starting PDF generation with data:', { caseData, enhancedAnalysis });
-    const doc = new jsPDF() as jsPDFWithAutoTable;
+  const doc = new jsPDF() as jsPDFWithAutoTable;
     let currentY = 10;
 
     // Add header with logo and clinic info
-    doc.setFontSize(20);
+  doc.setFontSize(20);
     doc.setTextColor(0, 102, 204);
     doc.text('PerioVision AI Report', 105, currentY, { align: 'center' });
     currentY += 15;
 
     // Add report date
-    doc.setFontSize(10);
+  doc.setFontSize(10);
     doc.setTextColor(100, 100, 100);
     doc.text(`Report Generated: ${format(new Date(), 'PPpp')}`, 105, currentY, { align: 'center' });
     currentY += 10;
@@ -382,7 +382,7 @@ export const generatePDFReport = async (
     currentY = updateCurrentY(doc);
 
     // Medical History Section
-    doc.setFontSize(14);
+  doc.setFontSize(14);
     doc.text('Medical History', 14, currentY);
     currentY += 5;
 
@@ -618,7 +618,7 @@ export const generatePDFReport = async (
         doc.addImage(img, 'JPEG', x, y, imgWidth, imgHeight);
         
         // Add caption
-        doc.setFontSize(12);
+    doc.setFontSize(12);
         doc.text('Original Dental Radiograph', pageWidth / 2, y + imgHeight + 10, { align: 'center' });
         
       } catch (error) {
@@ -676,9 +676,9 @@ export const generatePDFReport = async (
         console.error('Error adding marked radiograph to PDF:', error);
         doc.text('Error: Could not load marked radiograph image', 14, currentY);
       }
-    }
+  }
 
-    // Save the PDF
+  // Save the PDF
     doc.save(`PerioVision_Report_${caseData.id}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
     console.log('PDF generation completed successfully');
 
