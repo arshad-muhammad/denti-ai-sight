@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Shield, FileText, Download, Stethoscope, RefreshCw, Clock, Info, AlertTriangle, CheckCircle } from "lucide-react";
+import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Shield, FileText, Download, Stethoscope, RefreshCw, Clock, Info, AlertTriangle, CheckCircle, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/AuthContext";
@@ -12,35 +12,124 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { supabase } from "@/lib/supabase";
+import type { Profile as ProfileType } from "@/lib/types";
 
 const Profile = () => {
   const navigate = useNavigate();
-  const { user, updateUserProfile, updateUserEmail, updateUserPassword, deleteUserAccount } = useAuth();
+  const { user, signOut, updateUserProfile, updateUserEmail, updateUserPassword, deleteUserAccount } = useAuth();
   const { toast } = useToast();
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    displayName: user?.displayName || "",
-    email: user?.email || "",
-    phoneNumber: user?.phoneNumber || "",
-    photoURL: user?.photoURL || "",
-    practice: "",
-    specialty: "general"
-  });
   const [loading, setLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const [profile, setProfile] = useState<ProfileType | null>(null);
+  const [formData, setFormData] = useState({
+    displayName: "",
+    email: user?.email || "",
+    practice: "",
+    specialty: "general",
+    photoURL: ""
+  });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      fetchProfile();
+    }
+  }, [user]);
+
+  const fetchProfile = async () => {
+    try {
+      // First try to get the existing profile
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user?.id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile doesn't exist, create it
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert([
+              {
+                id: user?.id,
+                display_name: user?.user_metadata?.full_name || '',
+                practice: '',
+                specialty: 'general'
+              }
+            ])
+            .select()
+            .single();
+
+          if (createError) throw createError;
+
+          setProfile(newProfile);
+          setFormData(prev => ({
+            ...prev,
+            displayName: newProfile.display_name || "",
+            practice: newProfile.practice || "",
+            specialty: newProfile.specialty || "general",
+            photoURL: user?.user_metadata?.avatar_url || ""
+          }));
+        } else {
+          throw error;
+        }
+      } else {
+        setProfile(data);
+        setFormData(prev => ({
+          ...prev,
+          displayName: data.display_name || "",
+          practice: data.practice || "",
+          specialty: data.specialty || "general",
+          photoURL: user?.user_metadata?.avatar_url || ""
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching/creating profile:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load profile data. Please try refreshing the page.",
+      });
+    }
+  };
 
   const handleSave = async () => {
     try {
       setLoading(true);
-      await updateUserProfile({
-        displayName: formData.displayName,
-        photoURL: formData.photoURL
+
+      // Update auth user metadata
+      const { error: updateUserError } = await supabase.auth.updateUser({
+        data: {
+          full_name: formData.displayName,
+          avatar_url: formData.photoURL
+        }
       });
-      setIsEditing(false);
+
+      if (updateUserError) throw updateUserError;
+
+      // Update profile in database
+      const { error: updateProfileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user?.id,
+          display_name: formData.displayName,
+          practice: formData.practice,
+          specialty: formData.specialty,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user?.id);
+
+      if (updateProfileError) throw updateProfileError;
+
+      // Refresh the profile data
+      await fetchProfile();
+
       toast({
         title: "Success",
         description: "Profile updated successfully.",
@@ -62,19 +151,75 @@ const Profile = () => {
     if (!file) return;
 
     try {
-      // TODO: Implement image upload logic
-      // For now, just update the local state
+      setLoading(true);
+
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Please upload an image file');
+      }
+
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        throw new Error('Image size should be less than 2MB');
+      }
+
+      // Create a unique file name
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      // Delete old avatar if exists
+      if (formData.photoURL) {
+        try {
+          const oldFilePath = formData.photoURL.split('/').pop();
+          if (oldFilePath) {
+            await supabase.storage
+              .from('avatars')
+              .remove([oldFilePath]);
+          }
+        } catch (error) {
+          console.error('Error deleting old avatar:', error);
+          // Continue with upload even if delete fails
+        }
+      }
+
+      // Upload new avatar
+      const { error: uploadError, data } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update form data with new URL
       setFormData(prev => ({
         ...prev,
-        photoURL: URL.createObjectURL(file)
+        photoURL: publicUrl
       }));
+
+      // Save changes immediately
+      await handleSave();
+
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully.",
+      });
     } catch (error) {
       console.error("Error uploading image:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to upload image. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to upload image. Please try again.",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -133,6 +278,27 @@ const Profile = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      setLogoutLoading(true);
+      await signOut();
+      navigate("/login");
+    } catch (error) {
+      console.error("Error logging out:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+      });
+    } finally {
+      setLogoutLoading(false);
+    }
+  };
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <PageHeader 
@@ -141,11 +307,47 @@ const Profile = () => {
       />
       
       <div className="container py-6 space-y-6">
-        {/* Profile Form */}
+        {/* Profile Form Card */}
         <Card>
           <CardHeader>
-            <CardTitle>Personal Information</CardTitle>
-            <CardDescription>Update your profile information</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Personal Information</CardTitle>
+                <CardDescription>Update your profile information</CardDescription>
+              </div>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <LogOut className="h-4 w-4" />
+                    Sign Out
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Sign Out</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to sign out? You will need to sign in again to access your account.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleLogout}
+                      disabled={logoutLoading}
+                    >
+                      {logoutLoading ? (
+                        <div className="flex items-center">
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Signing Out...
+                        </div>
+                      ) : (
+                        "Sign Out"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -162,8 +364,13 @@ const Profile = () => {
                     onChange={handleImageUpload}
                     className="hidden"
                     id="profile-image"
+                    disabled={loading}
                   />
-                  <Button variant="outline" onClick={() => document.getElementById("profile-image")?.click()}>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => document.getElementById("profile-image")?.click()}
+                    disabled={loading}
+                  >
                     Change Picture
                   </Button>
                 </div>
@@ -178,6 +385,7 @@ const Profile = () => {
                     value={formData.displayName}
                     onChange={(e) => setFormData(prev => ({ ...prev, displayName: e.target.value }))}
                     className="bg-background"
+                    disabled={loading}
                   />
                 </div>
 
@@ -199,12 +407,17 @@ const Profile = () => {
                     value={formData.practice}
                     onChange={(e) => setFormData(prev => ({ ...prev, practice: e.target.value }))}
                     className="bg-background"
+                    disabled={loading}
                   />
                 </div>
 
                 <div className="grid gap-2">
                   <Label htmlFor="specialty">Specialty</Label>
-                  <Select value={formData.specialty} onValueChange={(value) => setFormData(prev => ({ ...prev, specialty: value }))}>
+                  <Select 
+                    value={formData.specialty} 
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, specialty: value }))}
+                    disabled={loading}
+                  >
                     <SelectTrigger id="specialty" className="bg-background">
                       <SelectValue placeholder="Select specialty" />
                     </SelectTrigger>
@@ -233,7 +446,7 @@ const Profile = () => {
           </CardContent>
         </Card>
 
-        {/* Password Change Section */}
+        {/* Password Change Card */}
         <Card>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
@@ -249,6 +462,7 @@ const Profile = () => {
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   className="bg-background"
+                  disabled={passwordLoading}
                 />
               </div>
 
@@ -260,6 +474,7 @@ const Profile = () => {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="bg-background"
+                  disabled={passwordLoading}
                 />
               </div>
 
@@ -271,6 +486,7 @@ const Profile = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="bg-background"
+                  disabled={passwordLoading}
                 />
               </div>
 
@@ -288,7 +504,7 @@ const Profile = () => {
           </CardContent>
         </Card>
 
-        {/* Danger Zone */}
+        {/* Danger Zone Card */}
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Danger Zone</CardTitle>
@@ -310,10 +526,29 @@ const Profile = () => {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This action cannot be undone. This will permanently delete your
-                      account and remove your data from our servers.
+                    <AlertDialogTitle>Delete Account</AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-2">
+                      <p>Are you absolutely sure you want to delete your account? This action cannot be undone.</p>
+                      <p>This will:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Permanently delete your account</li>
+                        <li>Remove all your personal information</li>
+                        <li>Delete all your saved data and preferences</li>
+                        <li>Cancel any active subscriptions</li>
+                      </ul>
+                      <p className="font-semibold text-destructive">
+                        Please type "DELETE" to confirm:
+                      </p>
+                      <Input 
+                        className="bg-background"
+                        placeholder="Type DELETE to confirm"
+                        onChange={(e) => {
+                          const deleteButton = document.querySelector('[data-delete-confirm]') as HTMLButtonElement;
+                          if (deleteButton) {
+                            deleteButton.disabled = e.target.value !== 'DELETE';
+                          }
+                        }}
+                      />
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -321,6 +556,8 @@ const Profile = () => {
                     <AlertDialogAction
                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       onClick={handleDeleteAccount}
+                      disabled={true}
+                      data-delete-confirm
                     >
                       {deleteLoading ? (
                         <div className="flex items-center">
