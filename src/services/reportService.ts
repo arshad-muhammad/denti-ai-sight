@@ -122,18 +122,10 @@ interface EnhancedAnalysis {
 }
 
 // Define type for jsPDF instance with AutoTable
-interface jsPDFWithAutoTable extends jsPDF {
+type jsPDFWithAutoTable = jsPDF & {
   autoTable: (options: UserOptions) => void;
   lastAutoTable: {
     finalY: number;
-  };
-  internal: {
-    pageSize: {
-      width: number;
-      height: number;
-      getWidth: () => number;
-      getHeight: () => number;
-    };
   };
 }
 
@@ -341,11 +333,11 @@ const checkAndAddNewPage = (doc: jsPDFWithAutoTable, currentY: number, minSpaceN
 
 export const generatePDFReport = async (
   caseData: Case,
-  enhancedAnalysis: EnhancedAnalysis | null
+  enhancedAnalysis: EnhancedAnalysis | null,
+  markedRadiographImage: string | null = null
 ) => {
-  console.log('Starting PDF generation with data:', { caseData, enhancedAnalysis });
   try {
-    console.log('Starting PDF generation...');
+    console.log('Starting PDF generation with data:', { caseData, enhancedAnalysis });
     const doc = new jsPDF() as jsPDFWithAutoTable;
     let currentY = 10;
 
@@ -590,7 +582,7 @@ export const generatePDFReport = async (
       }
     });
 
-    // Add radiograph if available
+    // Add original radiograph if available
     if (caseData.radiograph_url) {
       doc.addPage();
       try {
@@ -627,11 +619,62 @@ export const generatePDFReport = async (
         
         // Add caption
         doc.setFontSize(12);
-        doc.text('Dental Radiograph', pageWidth / 2, y + imgHeight + 10, { align: 'center' });
+        doc.text('Original Dental Radiograph', pageWidth / 2, y + imgHeight + 10, { align: 'center' });
         
       } catch (error) {
         console.error('Error adding radiograph to PDF:', error);
         doc.text('Error: Could not load radiograph image', 14, currentY);
+      }
+    }
+
+    // Add marked radiograph if available
+    if (markedRadiographImage) {
+      doc.addPage();
+      try {
+        // Create a temporary image element to get dimensions
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = markedRadiographImage;
+        });
+
+        // Calculate dimensions to fit the page while maintaining aspect ratio
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 20;
+        const maxWidth = pageWidth - (2 * margin);
+        const maxHeight = pageHeight - (2 * margin);
+        
+        let imgWidth = img.width;
+        let imgHeight = img.height;
+        
+        // Scale down if necessary
+        if (imgWidth > maxWidth) {
+          const ratio = maxWidth / imgWidth;
+          imgWidth = maxWidth;
+          imgHeight = imgHeight * ratio;
+        }
+        
+        if (imgHeight > maxHeight) {
+          const ratio = maxHeight / imgHeight;
+          imgHeight = maxHeight;
+          imgWidth = imgWidth * ratio;
+        }
+        
+        // Center the image
+        const x = (pageWidth - imgWidth) / 2;
+        const y = (pageHeight - imgHeight) / 2;
+        
+        doc.addImage(markedRadiographImage, 'JPEG', x, y, imgWidth, imgHeight);
+        
+        // Add caption
+        doc.setFontSize(12);
+        doc.text('Analyzed Dental Radiograph with Measurements', pageWidth / 2, y + imgHeight + 10, { align: 'center' });
+        
+      } catch (error) {
+        console.error('Error adding marked radiograph to PDF:', error);
+        doc.text('Error: Could not load marked radiograph image', 14, currentY);
       }
     }
 
