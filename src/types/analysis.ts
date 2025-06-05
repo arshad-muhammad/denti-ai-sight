@@ -116,17 +116,37 @@ export interface AnalysisMetadata {
   modelVersion: string;
 }
 
+export interface PeriodontalStageResult {
+  stage: string;
+  description: string;
+  prognosis: Prognosis;
+}
+
 export interface EnhancedAnalysis {
   refinedPrognosis: {
     status: Prognosis;
     explanation: string;
     riskFactors: string[];
     longTermOutlook: string;
-    periodontalStage?: {
-      stage: string;
+    periodontalStage?: PeriodontalStageResult;
+  };
+  detailedFindings: {
+    primaryCondition: {
       description: string;
+      severity: string;
       implications: string[];
     };
+    riskAssessment: {
+      current: string;
+      future: string;
+      mitigationStrategies: string[];
+    };
+    secondaryFindings: Array<{
+      condition: string;
+      severity: string;
+      description: string;
+      implications: string[];
+    }>;
   };
   detailedTreatmentPlan: {
     immediate: string[];
@@ -134,28 +154,5 @@ export interface EnhancedAnalysis {
     longTerm: string[];
     preventiveMeasures: string[];
     lifestyle: string[];
-  };
-  detailedFindings: {
-    primaryCondition: {
-      description: string;
-      severity: string;
-      implications: string[];
-      measurements?: {
-        boneLossApexY?: number;
-        boneY?: number;
-        cejY?: number;
-      };
-    };
-    secondaryFindings: Array<{
-      condition: string;
-      description: string;
-      severity: string;
-      implications: string[];
-    }>;
-    riskAssessment: {
-      current: string;
-      future: string;
-      mitigationStrategies: string[];
-    };
   };
 }

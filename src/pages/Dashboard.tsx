@@ -46,8 +46,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/lib/AuthContext";
-import { dentalCaseService } from "@/lib/services/dentalCase";
-import { FirebaseDentalCase } from "@/types/firebase";
+import dentalCaseService from "@/lib/services/dentalCaseService";
+import { Database } from "@/types/supabase";
 import { useToast } from "@/components/ui/use-toast";
 import { EditCaseDialog } from "@/components/EditCaseDialog";
 import { generatePDFReport } from "@/services/reportService";
@@ -56,14 +56,85 @@ import { LogoutConfirmDialog } from "@/components/LogoutConfirmDialog";
 import type { GeminiAnalysisInput } from '@/services/geminiService';
 import { LoadingOverlay } from '@/components/LoadingOverlay';
 
+type Case = {
+  id: string;
+  user_id: string;
+  status: 'pending' | 'analyzing' | 'completed' | 'error';
+  radiograph_url: string | null;
+  patient_data: {
+    fullName: string;
+    age: string;
+    gender: string;
+    phone: string;
+    email: string;
+    address: string;
+    smoking: boolean;
+    alcohol: boolean;
+    diabetes: boolean;
+    hypertension: boolean;
+    chiefComplaint?: string;
+    medicalHistory?: string;
+  };
+  clinical_data?: {
+    toothNumber?: string;
+    mobility?: boolean;
+    bleeding?: boolean;
+    sensitivity?: boolean;
+    pocketDepth?: string;
+    additionalNotes?: string;
+    bopScore?: number;
+    totalSites?: number;
+    bleedingSites?: number;
+    anteriorBleeding?: number;
+    posteriorBleeding?: number;
+    deepPocketSites?: number;
+    averagePocketDepth?: number;
+    riskScore?: number;
+    boneLossAgeRatio?: number;
+    bopFactor?: number;
+    clinicalAttachmentLoss?: number;
+    redFlags?: {
+      hematologicDisorder?: boolean;
+      necrotizingPeriodontitis?: boolean;
+      leukemiaSigns?: boolean;
+      details?: string;
+    };
+    plaqueCoverage?: number;
+    smoking?: boolean;
+    alcohol?: boolean;
+    diabetes?: boolean;
+    hypertension?: boolean;
+  };
+  analysis_results?: {
+    diagnosis?: string;
+    confidence?: number;
+    severity?: string;
+    findings?: {
+      boneLoss?: {
+        percentage: number;
+        severity: string;
+        regions: string[];
+      };
+      pathologies?: Array<{
+        type: string;
+        location: string;
+        severity: string;
+        confidence: number;
+      }>;
+    };
+  };
+  created_at: string;
+  updated_at: string;
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
-  const [cases, setCases] = useState<FirebaseDentalCase[]>([]);
+  const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const { toast } = useToast();
 
   // Add new state for AI insights
@@ -81,6 +152,39 @@ const Dashboard = () => {
   });
 
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  // Check authentication
+  useEffect(() => {
+    if (!user && !loading) {
+      navigate('/login');
+    }
+  }, [user, loading, navigate]);
+
+  // Load cases only when user is authenticated
+  useEffect(() => {
+    const loadCases = async () => {
+      if (!user) return;
+      
+      try {
+        const userCases = await dentalCaseService.getByUserId(user.id);
+        console.log('Fetched cases:', userCases); // Debug log
+        
+        // No need to transform the data anymore since it's already in the correct structure
+        setCases(userCases || []);
+      } catch (error) {
+        console.error("Error loading cases:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load cases. Please try again.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCases();
+  }, [user, toast]);
 
   // Fetch health tips using Gemini API
   useEffect(() => {
@@ -107,13 +211,7 @@ const Dashboard = () => {
           patientData: {
             age: 30,
             gender: "not specified",
-            medicalHistory: {
-              smoking: false,
-              alcohol: false,
-              diabetes: false,
-              hypertension: false,
-              notes: "General dental health guidelines for all patients"
-            }
+            medicalHistory: "General dental health guidelines for all patients"
           }
         };
 
@@ -177,28 +275,6 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [healthTips.tips.length]);
 
-  useEffect(() => {
-    const loadCases = async () => {
-      try {
-        if (user) {
-          const userCases = await dentalCaseService.getByUserId(user.uid);
-          setCases(userCases);
-        }
-      } catch (error) {
-        console.error("Error loading cases:", error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to load cases. Please try again.",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadCases();
-  }, [user, toast]);
-
   // Calculate AI statistics
   useEffect(() => {
     if (cases.length > 0) {
@@ -206,17 +282,17 @@ const Dashboard = () => {
       const completedCases = cases.filter(c => c.status === 'completed');
       const accuracyRate = completedCases.length > 0 
         ? completedCases.reduce((acc, curr) => {
-            const confidence = curr.analysisResults?.confidence || 0;
+            const confidence = curr.analysis_results?.confidence || 0;
             return acc + confidence;
           }, 0) / completedCases.length
         : 0;
 
       // Calculate average processing time (if timestamps available)
       const processingTimes = completedCases
-        .filter(c => c.createdAt)
+        .filter(c => c.created_at)
         .map(c => {
-          const start = c.createdAt.toDate();
-          const end = new Date(); // Use current time as completion time
+          const start = new Date(c.created_at);
+          const end = new Date();
           return (end.getTime() - start.getTime()) / 1000; // in seconds
         });
 
@@ -226,7 +302,7 @@ const Dashboard = () => {
 
       // Calculate total findings
       const totalFindings = completedCases.reduce((acc, curr) => {
-        return acc + (curr.pathologies?.length || 0);
+        return acc + (curr.analysis_results?.findings?.pathologies?.length || 0);
       }, 0);
 
       // Calculate recent trends (last 7 days)
@@ -234,14 +310,16 @@ const Dashboard = () => {
       last7Days.setDate(last7Days.getDate() - 7);
       
       const recentCases = cases.filter(c => 
-        c.createdAt?.toDate() >= last7Days
+        c.created_at ? new Date(c.created_at) >= last7Days : false
       );
 
       const dailyCounts = new Array(7).fill(0);
       recentCases.forEach(c => {
-        const dayIndex = 6 - Math.floor((new Date().getTime() - c.createdAt.toDate().getTime()) / (1000 * 60 * 60 * 24));
-        if (dayIndex >= 0 && dayIndex < 7) {
-          dailyCounts[dayIndex]++;
+        if (c.created_at) {
+          const dayIndex = 6 - Math.floor((new Date().getTime() - new Date(c.created_at).getTime()) / (1000 * 60 * 60 * 24));
+          if (dayIndex >= 0 && dayIndex < 7) {
+            dailyCounts[dayIndex]++;
+          }
         }
       });
 
@@ -265,7 +343,7 @@ const Dashboard = () => {
     {
       title: "This Month",
       value: cases.filter(c => {
-        const caseDate = c.createdAt?.toDate();
+        const caseDate = c.created_at ? new Date(c.created_at) : null;
         if (!caseDate) return false;
         const now = new Date();
         return caseDate.getMonth() === now.getMonth() && 
@@ -284,7 +362,7 @@ const Dashboard = () => {
     },
     {
       title: "Active Patients",
-      value: new Set(cases.map(c => c.patientName)).size.toString(),
+      value: new Set(cases.map(c => c.patient_data.fullName)).size.toString(),
       change: "+3",
       icon: Users,
       variant: "warning"
@@ -323,8 +401,8 @@ const Dashboard = () => {
 
   const handleLogout = async () => {
     try {
-      await logout();
-      navigate("/login");
+      await signOut();
+      navigate('/login');
     } catch (error) {
       console.error("Error logging out:", error);
       toast({
@@ -353,18 +431,18 @@ const Dashboard = () => {
     }
   };
 
-  const handleDownloadReport = async (caseData: FirebaseDentalCase) => {
+  const handleDownloadReport = async (caseData: Case) => {
     try {
       setIsGeneratingReport(true);
       
       // Get enhanced analysis first
       const enhancedAnalysis = await getEnhancedAnalysis({
-        diagnosis: caseData.diagnosis || '',
-        findings: caseData.analysisResults?.findings || {},
+        diagnosis: caseData.analysis_results?.diagnosis || '',
+        findings: caseData.analysis_results?.findings || {},
         patientData: {
-          age: caseData.patientAge,
-          gender: caseData.patientGender,
-          medicalHistory: caseData.medicalHistory
+          age: caseData.patient_data.age,
+          gender: caseData.patient_data.gender,
+          medicalHistory: caseData.patient_data.medicalHistory
         }
       });
 
@@ -388,15 +466,25 @@ const Dashboard = () => {
   };
 
   const filteredCases = cases.filter(c => {
-    const matchesSearch = 
-      c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.id.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = searchTerm === "" || (
+      (c.patient_data?.fullName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (c.id?.toLowerCase() || "").includes(searchTerm.toLowerCase())
+    );
     
     const matchesStatus = filterStatus === "all" || c.status === filterStatus;
-    const matchesSeverity = filterSeverity === "all" || c.severity === filterSeverity;
+    const matchesSeverity = filterSeverity === "all" || c.analysis_results?.severity === filterSeverity;
     
     return matchesSearch && matchesStatus && matchesSeverity;
   });
+
+  // Return loading state if not authenticated
+  if (!user || loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingOverlay />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background">
@@ -549,35 +637,43 @@ const Dashboard = () => {
                         <TableCell>
                           <div className="flex items-center space-x-2">
                             <Avatar className="w-8 h-8">
-                              <AvatarFallback>{case_.patientName.charAt(0)}</AvatarFallback>
+                              <AvatarFallback>
+                                {case_?.patient_data?.fullName?.charAt(0)?.toUpperCase() || '?'}
+                              </AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="font-medium">{case_.patientName}</p>
-                              <p className="text-sm text-gray-500">{case_.patientAge} years</p>
+                              <p className="font-medium">
+                                {case_?.patient_data?.fullName || 'Unknown Patient'}
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                {case_?.patient_data?.age ? `${case_?.patient_data?.age} years` : 'Age not specified'}
+                              </p>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
-                            <span>{case_.createdAt?.toDate().toLocaleDateString()}</span>
+                            <span>
+                              {case_.created_at ? new Date(case_.created_at).toLocaleDateString() : 'Date not available'}
+                            </span>
                             <span className="text-sm text-gray-500">
-                              {case_.createdAt?.toDate().toLocaleTimeString()}
+                              {case_.created_at ? new Date(case_.created_at).toLocaleTimeString() : 'Time not available'}
                             </span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={getStatusBadgeVariant(case_.status)}>
+                          <Badge variant={getStatusBadgeVariant(case_.status)}>
                             {case_.status.charAt(0).toUpperCase() + case_.status.slice(1)}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {case_.analysisResults ? (
+                          {case_.analysis_results ? (
                             <div className="space-y-1">
-                              <Badge className={getSeverityBadgeVariant(case_.severity)}>
-                                {case_.severity || 'N/A'}
+                              <Badge variant={getSeverityBadgeVariant(case_.analysis_results.severity)}>
+                                {case_.analysis_results.severity || 'N/A'}
                               </Badge>
                               <p className="text-sm text-gray-500">
-                                {case_.pathologies?.length || 0} findings
+                                {case_.analysis_results.findings?.pathologies?.length || 0} findings
                               </p>
                             </div>
                           ) : (
@@ -623,7 +719,7 @@ const Dashboard = () => {
                               </DropdownMenuItem>
                               <DropdownMenuItem 
                                 onClick={() => handleDownloadReport(case_)}
-                                disabled={!case_.analysisResults}
+                                disabled={!case_.analysis_results}
                               >
                                 <Download className="mr-2 h-4 w-4" />
                                 Download Report

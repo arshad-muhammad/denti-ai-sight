@@ -1,143 +1,185 @@
-# Denti AI Sight - Advanced Dental Radiograph Analysis Platform
+# Denti AI Sight
 
-A state-of-the-art AI-powered platform for comprehensive dental radiograph analysis. This tool combines advanced artificial intelligence with interactive measurement capabilities to provide detailed periodontal assessments, pathology detection, and treatment planning assistance.
+A sophisticated dental analysis application that leverages AI to assist dental professionals in analyzing radiographs and managing patient cases.
 
-## Features
+## 🌟 Features
 
-### 1. AI-Powered Analysis
-- Automated bone loss detection and measurement
-- Pathology identification and classification
-- Confidence scoring for all AI predictions
-- Real-time analysis with progress tracking
-- Enhanced analysis using advanced language models
+### Core Functionality
+- 📊 Patient Case Management
+- 🔍 Radiograph Analysis
+- 🤖 Enhanced AI Analysis
+- 📝 Clinical Data Recording
+- 🎯 Treatment Planning
 
-### 2. Interactive Measurement System
-- Click-to-mark functionality for precise anatomical landmark placement
-- Support for multiple teeth analysis
-- Real-time bone loss percentage calculation
-- Automatic periodontal staging based on measurements
-- Manual measurement validation and adjustment
+### Detailed Analysis Capabilities
+- Automated bone loss detection
+- Periodontal staging
+- Pathology detection
+- Risk assessment
+- AI-powered detailed findings
 
-### 3. Comprehensive Analysis Dashboard
-- Primary diagnosis with confidence scores
-- Detailed pathology findings with severity indicators
-- Interactive annotated radiograph viewer
-- Risk assessment and prognosis evaluation
-- Comprehensive treatment planning
-
-### 4. Advanced Reporting
-- Detailed findings visualization
-- Customizable PDF report generation
-- Patient-friendly summaries
-- Treatment plan documentation
-- Progress tracking capabilities
-
-### 5. Clinical Decision Support
-- Evidence-based periodontal staging
-- Risk factor analysis
-- Treatment recommendations
-- Follow-up scheduling
-- Preventive measure suggestions
-
-### 6. Patient Management
-- Detailed patient profiles
+### Clinical Data Management
+- Comprehensive patient demographics
 - Medical history tracking
-- Clinical findings documentation
-- Treatment progress monitoring
-- Follow-up management
+- Bleeding on Probing (BoP) assessment
+- Clinical measurements
+- Risk factor analysis
 
-## Technical Stack
+## 🏗️ Technical Architecture
 
-### Frontend
+### Backend Infrastructure
+- **Database & Auth**: Supabase
+- **Main Tables**:
+  - `cases`: Core case information
+  - `patient_data`: Patient demographics and history
+  - `clinical_data`: Clinical measurements and assessments
+  - `analysis_results`: AI analysis outputs
+
+### Frontend Stack
 - React with TypeScript
-- Tailwind CSS for styling
-- Shadcn/ui components
-- Canvas API for interactive measurements
-- PDF generation capabilities
+- Modern UI components
+- Real-time updates
+- Robust error handling
+- Rate limiting with cooldown management
 
-### Backend Services
-- Firebase for real-time database and authentication
-- Cloud Functions for serverless operations
-- AI service integration for image analysis
-- Secure file storage for radiographs
+## 🔒 Security Features
+- User authentication
+- Permission-based access control
+- Secure data storage
+- Protected API endpoints
 
-### AI/ML Components
-- Custom trained models for dental pathology detection
-- Advanced language models for detailed analysis
-- Image processing pipeline for enhancement
-- Confidence scoring system
+## 💫 User Experience
+- Intuitive case management interface
+- Real-time analysis feedback
+- Progress indicators
+- Error notifications
+- Cooldown indicators for rate-limited features
 
-## Key Features Breakdown
+## 🔄 Data Flow
 
-### 1. Analysis Process
-- Automated radiograph processing
-- Multi-stage AI analysis pipeline
-- Real-time progress tracking
-- Quality assurance checks
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant S as Supabase
+    participant AI as AI Service
 
-### 2. Measurement System
-- CEJ (Cemento-Enamel Junction) marking
-- Bone level detection
-- Root apex identification
-- Automatic bone loss calculation
-- Periodontal staging according to clinical standards:
-  - Stage I (<15%): Initial Periodontitis
-  - Stage II (15-33%): Moderate Periodontitis
-  - Stage III (33-50%): Severe Periodontitis
-  - Stage IV (>50%): Advanced Periodontitis
+    U->>F: Create Case
+    F->>S: Store Case Data
+    F->>S: Upload Radiograph
+    F->>AI: Request Analysis
+    AI-->>F: Analysis Results
+    F->>S: Store Results
+    F->>AI: Enhanced Analysis
+    AI-->>F: Detailed Findings
+    F->>S: Update Case
+    F-->>U: Display Results
+```
 
-### 3. Treatment Planning
-- Immediate actions identification
-- Short-term treatment recommendations
-- Long-term care planning
-- Preventive measures
-- Lifestyle recommendations
+## 🗺️ Component Structure
 
-### 4. Risk Assessment
-- Current risk status evaluation
-- Future risk projection
-- Risk mitigation strategies
-- Patient-specific factors consideration
+```mermaid
+graph TD
+    A[Dashboard] --> B[Case Management]
+    B --> C[Analysis Page]
+    C --> D[Radiograph Analysis]
+    C --> E[Enhanced AI Analysis]
+    C --> F[Clinical Data]
+    C --> G[Treatment Plan]
+    
+    subgraph "Analysis Features"
+        D --> D1[Bone Loss Detection]
+        D --> D2[Pathology Detection]
+        E --> E1[Detailed Findings]
+        E --> E2[Refined Prognosis]
+        E --> E3[Treatment Recommendations]
+    end
 
-## Getting Started
+    subgraph "Clinical Data"
+        F --> F1[Patient Info]
+        F --> F2[Medical History]
+        F --> F3[BoP Assessment]
+        F --> F4[Risk Assessment]
+    end
+```
 
-1. Clone the repository
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js (v14 or higher)
+- npm or yarn
+- Supabase account
+
+### Installation
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/denti-ai-sight.git
+```
+
 2. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+cd denti-ai-sight
+npm install
+```
+
 3. Set up environment variables:
-   - Create a `.env` file
-   - Add necessary API keys and configuration
+```bash
+   cp .env.example .env
+   ```
+   Fill in your Supabase credentials and other required variables.
 
 4. Start the development server:
-   ```bash
-   npm run dev
-   ```
+```bash
+npm run dev
+```
 
-## Usage
+## 📝 Environment Variables
+Create a `.env` file with the following variables:
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_AI_SERVICE_URL=your_ai_service_url
+```
 
-1. Upload a dental radiograph
-2. Wait for AI analysis completion
-3. Review automated findings
-4. Adjust measurements if needed
-5. Generate comprehensive report
-6. Plan treatment based on AI recommendations
+## 🛠️ Development
 
-## Contributing
+### Code Structure
+```
+src/
+├── components/        # Reusable UI components
+├── pages/            # Main application pages
+├── lib/              # Utilities and services
+│   ├── services/     # API and service integrations
+│   └── supabase.ts   # Supabase client configuration
+├── types/            # TypeScript type definitions
+└── styles/           # Global styles and themes
+```
 
-We welcome contributions! Please follow these steps:
+### Key Components
+- **Dashboard**: Main interface for case management
+- **Analysis**: Comprehensive analysis workspace
+- **Clinical Data Forms**: Patient and clinical data entry
+- **Enhanced Analysis**: AI-powered detailed analysis
 
+## 🤝 Contributing
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to your branch
-5. Create a Pull Request
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## License
+## 📄 License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 🙏 Acknowledgments
+- Supabase for backend infrastructure
+- React and TypeScript communities
+- All contributors and users of Denti AI Sight
 
-## Support
+## 📞 Support
 
-For support, please open an issue in the GitHub repository or contact our support team.
+For support, please email support@dentiai.com or open an issue in the repository.
+
+## 🔄 Updates
+
+The project is actively maintained and regularly updated with new features and improvements. Check the releases page for the latest updates.
